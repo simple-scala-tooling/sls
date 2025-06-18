@@ -4,8 +4,13 @@ import coursier.maven.MavenRepository
 import mill._
 import mill.define.Sources
 import scalalib._
+import smithy4s.codegen.mill._
 
+import $ivy.`com.disneystreaming.smithy4s::smithy4s-mill-codegen-plugin::0.18.37`
 import $ivy.`com.goyeau::mill-scalafix::0.5.0`
+
+val jsonrpcVersion     = "0.0.8+41-0a28e99d-SNAPSHOT"
+val smithyVersion      = "1.57.1"
 
 trait CommonScalaModule extends ScalaModule with ScalafixModule {
   override def repositoriesTask: Task[Seq[Repository]] = T.task {
@@ -20,9 +25,26 @@ trait CommonScalaModule extends ScalaModule with ScalafixModule {
   def scalacOptions = Seq("-no-indent", "-Wunused:all")
 }
 
+object slsSmithy extends CommonScalaModule with Smithy4sModule {
+
+  override def smithy4sAllowedNamespaces: T[Option[Set[String]]] = T(Some(Set("lsp")))
+
+  def smithy4sInputDirs: Target[Seq[PathRef]] = T.sources {
+    super.smithy4sInputDirs() // ++ Seq(PathRef(moduleDir / os.up / "target"))
+  }
+
+  override def ivyDeps = Agg(
+    ivy"com.disneystreaming.smithy4s::smithy4s-core:${smithy4sVersion()}",
+    ivy"tech.neander::jsonrpclib-smithy4s:$jsonrpcVersion",
+    ivy"io.github.simple-scala-tooling:lsp-smithy-definitions:d961a13",
+  )
+}
+
 object sls extends CommonScalaModule {
 
   def mainClass = Some("org.scala.abusers.sls.SimpleScalaServer")
+
+  def moduleDeps: Seq[JavaModule] = Seq(slsSmithy)
 
   def ivyDeps = Agg(
     ivy"com.github.plokhotnyuk.jsoniter-scala:jsoniter-scala-core_2.13:2.35.2".forceVersion(),
