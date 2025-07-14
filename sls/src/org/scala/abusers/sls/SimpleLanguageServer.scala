@@ -2,11 +2,10 @@ package org.scala.abusers.sls
 
 import cats.effect.*
 import jsonrpclib.fs2.catsMonadic
-import langoustine.lsp.*
-import langoustine.lsp.all.*
-import langoustine.lsp.app.*
 import org.scala.abusers.pc.IOCancelTokens
 import org.scala.abusers.pc.PresentationCompilerProvider
+import jsonrpclib.fs2.FS2Channel
+import jsonrpclib.smithy4sinterop.ClientStub
 
 case class BuildServer(
     generic: bsp.BuildServer[IO],
@@ -23,18 +22,59 @@ object BuildServer {
     SmithySuspend.sus(client.map(_.java)),
   )
 }
+// object SimpleScalaServerApp extends IOApp.Simple {
+//   val server = for {
+//     steward           <- ResourceSupervisor[IO]
+//     pcProvider        <- PresentationCompilerProvider.instance.toResource
+//     textDocumentSync  <- TextDocumentSyncManager.instance.toResource
+//     bspClientDeferred <- Deferred[IO, BuildServer].toResource
+//     bspStateManager   <- BspStateManager.instance(BuildServer.suspend(bspClientDeferred.get)).toResource
+//     stateManager      <- StateManager.instance(textDocumentSync, bspStateManager).toResource
+//     cancelTokens      <- IOCancelTokens.instance
+//     diagnosticManager <- DiagnosticManager.instance.toResource
+//   } yield ServerImpl(stateManager, pcProvider, cancelTokens, diagnosticManager, steward, bspClientDeferred)
 
-object SimpleScalaServer extends LangoustineApp {
+// }
 
-  override def server(args: List[String]): Resource[IO, LSPBuilder[IO]] =
-    (for {
-      steward <- ResourceSupervisor[IO]
-      lsp     <- myLSP(steward)
-    } yield lsp).onFinalizeCase(s => IO.consoleForIO.errorln(s"closing with $s"))
+object SimpleScalaServer extends IOApp.Simple {
+  import jsonrpclib.smithy4sinterop.ServerEndpoints
 
-  private def myLSP(steward: ResourceSupervisor[IO]): Resource[IO, LSPBuilder[IO]] =
+  def run: IO[Unit] =
+    fs2.Stream
+      .resource(server)
+      .flatMap { impl =>
+        stream(impl)
+      }
+      .compile
+      .drain
+      .as(ExitCode.Success)
 
+  def stream(impl: ServerImpl) = {
     for {
+      fs2Channel <- FS2Channel.stream[IO](cancelTemplate = None)
+      client = ClientStub(SlsLanguageClient, fs2Channel).toTry.get
+      channelWithEndpoints <- fs2Channel.withEndpointsStream(ServerEndpoints(impl).toTry.get)
+      _ <- fs2.Stream.eval(impl.client.complete(client).void)
+      res <- fs2.Stream.never[IO]
+        .concurrently(
+          // STDIN
+          fs2.io.stdin[IO](512)
+            .through(jsonrpclib.fs2.lsp.decodeMessages)
+            .through(channelWithEndpoints.inputOrBounce)
+        )
+        .concurrently(
+          // STDOUT
+          channelWithEndpoints.output
+            .through(jsonrpclib.fs2.lsp.encodeMessages[IO])
+            .through(fs2.io.stdout[IO])
+        )
+    } yield res
+  }
+
+
+  def server: Resource[IO, ServerImpl] =
+    for {
+      steward           <- ResourceSupervisor[IO]
       pcProvider        <- PresentationCompilerProvider.instance.toResource
       textDocumentSync  <- TextDocumentSyncManager.instance.toResource
       bspClientDeferred <- Deferred[IO, BuildServer].toResource
@@ -42,19 +82,7 @@ object SimpleScalaServer extends LangoustineApp {
       stateManager      <- StateManager.instance(textDocumentSync, bspStateManager).toResource
       cancelTokens      <- IOCancelTokens.instance
       diagnosticManager <- DiagnosticManager.instance.toResource
-      impl = ServerImpl(stateManager, pcProvider, cancelTokens, diagnosticManager)
-    } yield LSPBuilder
-      .create[IO]
-      .handleRequest(initialize)(impl.handleInitialize(steward, bspClientDeferred))
-      .handleNotification(textDocument.didOpen)(impl.handleDidOpen)
-      .handleNotification(textDocument.didClose)(impl.handleDidClose)
-      .handleNotification(textDocument.didChange)(impl.handleDidChange)
-      .handleNotification(textDocument.didSave)(impl.handleDidSave)
-      .handleNotification(initialized)(impl.handleInitialized)
-      .handleRequest(textDocument.completion)(impl.handleCompletion)
-      .handleRequest(textDocument.hover)(impl.handleHover)
-      .handleRequest(textDocument.signatureHelp)(impl.handleSignatureHelp)
-      .handleRequest(textDocument.definition)(impl.handleDefinition)
-      .handleRequest(textDocument.inlayHint)(impl.handleInlayHints)
-  // .handleRequest(textDocument.inlayHint.resolve)(impl.handleInlayHintsResolve)
+    } yield ServerImpl(stateManager, pcProvider, cancelTokens, diagnosticManager, steward, bspClientDeferred)
 }
+
+

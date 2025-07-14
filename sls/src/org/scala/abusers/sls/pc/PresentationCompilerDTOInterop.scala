@@ -1,17 +1,16 @@
 package org.scala.abusers.pc
 
-import langoustine.lsp.structures.*
-import langoustine.lsp.structures.HoverParams
-import langoustine.lsp.structures.Position
 import org.eclipse.lsp4j.jsonrpc.json.MessageJsonHandler
 import org.scala.abusers.sls.DocumentState
 import org.scala.abusers.sls.NioConverter.asNio
-import upickle.default.*
 
 import java.net.URI
 import java.util.Collections
 import scala.meta.pc.CancelToken
 import scala.meta.pc.OffsetParams
+import smithy4s.schema.Schema
+import smithy4s.json.Json
+import smithy4s.Blob
 
 object PresentationCompilerDTOInterop {
   val gson =
@@ -20,9 +19,11 @@ object PresentationCompilerDTOInterop {
   // We need to translate lsp4j / scalameta into langoustine and vice versa. It may be good idea to use chimney here
 
   // FIXME VVVVV Missing completion for langoustine
-  def convert[In, Out: Reader](x: In): Out = read[Out](gson.toJson(x, x.getClass))
+  def convert[In, Out: Schema](x: In): Out = Json.read[Out](Blob(gson.toJson(x, x.getClass))).getOrElse(
+    sys.error(s"Failed to convert $x to ${summon[Schema[Out]].shapeId} using gson: ${gson.toJson(x, x.getClass)}")
+  )
 
-  def toOffsetParams(position: Position, doc: DocumentState, cancelToken: CancelToken): OffsetParams = {
+  def toOffsetParams(position: lsp.Position, doc: DocumentState, cancelToken: CancelToken): OffsetParams = {
     import doc.*
     new OffsetParams {
       override def toString(): String =
@@ -37,11 +38,11 @@ object PresentationCompilerDTOInterop {
   }
 
   trait WithPosition[A] {
-    def position(params: A): Position
+    def position(params: A): lsp.Position
   }
 
   trait WithRange[A] {
-    def range(params: A): Range
+    def range(params: A): lsp.Range
   }
 
   trait WithURI[A] {
@@ -51,28 +52,28 @@ object PresentationCompilerDTOInterop {
   trait PositionWithURI[A] extends WithPosition[A] with WithURI[A]
   trait RangeWithURI[A]    extends WithRange[A] with WithURI[A]
 
-  given PositionWithURI[CompletionParams] with {
-    def position(params: CompletionParams): Position = params.position
-    def uri(params: CompletionParams): URI           = params.textDocument.uri.asNio
+  given PositionWithURI[lsp.CompletionParams] with {
+    def position(params: lsp.CompletionParams): lsp.Position = params.position
+    def uri(params: lsp.CompletionParams): URI           = URI(params.textDocument.uri)
   }
 
-  given PositionWithURI[HoverParams] with { // TODO can't rename inside the type param
-    def position(params: HoverParams): Position = params.position
-    def uri(params: HoverParams): URI           = params.textDocument.uri.asNio
+  given PositionWithURI[lsp.HoverParams] with { // TODO can't rename inside the type param
+    def position(params: lsp.HoverParams): lsp.Position = params.position
+    def uri(params: lsp.HoverParams): URI           = URI(params.textDocument.uri)
   }
 
-  given PositionWithURI[SignatureHelpParams] with {
-    def position(params: SignatureHelpParams): Position = params.position
-    def uri(params: SignatureHelpParams): URI           = params.textDocument.uri.asNio
+  given PositionWithURI[lsp.SignatureHelpParams] with {
+    def position(params: lsp.SignatureHelpParams): lsp.Position = params.position
+    def uri(params: lsp.SignatureHelpParams): URI           = URI(params.textDocument.uri)
   }
 
-  given PositionWithURI[DefinitionParams] with {
-    def position(params: DefinitionParams): Position = params.position
-    def uri(params: DefinitionParams): URI           = params.textDocument.uri.asNio
+  given PositionWithURI[lsp.DefinitionParams] with {
+    def position(params: lsp.DefinitionParams): lsp.Position = params.position
+    def uri(params: lsp.DefinitionParams): URI           = URI(params.textDocument.uri)
   }
 
-  given RangeWithURI[InlayHintParams] with {
-    def range(params: InlayHintParams): Range = params.range
-    def uri(params: InlayHintParams): URI     = params.textDocument.uri.asNio
+  given RangeWithURI[lsp.InlayHintParams] with {
+    def range(params: lsp.InlayHintParams): lsp.Range = params.range
+    def uri(params: lsp.InlayHintParams): URI     = URI(params.textDocument.uri)
   }
 }

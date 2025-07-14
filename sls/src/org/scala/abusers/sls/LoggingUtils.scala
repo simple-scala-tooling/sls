@@ -1,29 +1,20 @@
 package org.scala.abusers.sls
 
 import cats.effect.IO
-import langoustine.lsp.*
-import langoustine.lsp.structures.LogMessageParams
-import langoustine.lsp.structures.ShowMessageParams
-import langoustine.lsp.Communicate
 
 object LoggingUtils {
-  extension (back: Communicate[IO]) {
+  extension (client: SlsLanguageClient[IO]) {
     def sendMessage(msg: String): IO[Unit] =
-      back.notification(
-        requests.window.showMessage,
-        ShowMessageParams(enumerations.MessageType.Info, msg),
-      ) *> logMessage(msg)
+      client.windowLogMessage(lsp.LogMessageParams(lsp.MessageType.INFO, msg))
+      // back.notification(
+      //   requests.window.showMessage,
+      //   ShowMessageParams(enumerations.MessageType.Info, msg),
+      // ) *> logMessage(msg)
 
-    def logMessage(message: String): IO[Unit] =
-      back.notification(
-        requests.window.logMessage,
-        LogMessageParams(enumerations.MessageType.Info, message),
-      )
+    def logMessage(msg: String): IO[Unit] =
+      client.windowLogMessage(lsp.LogMessageParams(lsp.MessageType.INFO, msg))
 
-    def logDebug(message: String): IO[Unit] =
-      back.notification(
-        requests.window.logMessage,
-        LogMessageParams(enumerations.MessageType.Debug, message),
-      )
+    def logDebug(msg: String): IO[Unit] =
+      client.windowLogMessage(lsp.LogMessageParams(lsp.MessageType.LOG, msg))
   }
 }

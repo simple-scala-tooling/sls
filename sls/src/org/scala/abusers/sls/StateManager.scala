@@ -3,9 +3,6 @@ package org.scala.abusers.sls
 import bsp.CompileParams
 import cats.effect.std.Mutex
 import cats.effect.IO
-import langoustine.lsp.structures.*
-import langoustine.lsp.Communicate
-import langoustine.lsp.Invocation
 import org.scala.abusers.sls.NioConverter.asNio
 
 import java.net.URI
@@ -30,27 +27,27 @@ class StateManager(
     bspStateManager: BspStateManager,
     mutex: Mutex[IO],
 ) {
-  def didOpen(in: Invocation[DidOpenTextDocumentParams, IO]): IO[Unit] =
+  def didOpen(client: SlsLanguageClient[IO], params: lsp.DidOpenTextDocumentParams): IO[Unit] =
     mutex.lock.surround {
-      textDocumentSyncManager.didOpen(in) *> bspStateManager.didOpen(in)
+      textDocumentSyncManager.didOpen(params) *> bspStateManager.didOpen(client, params)
     }
 
-  def didChange(in: Invocation[DidChangeTextDocumentParams, IO]) =
+  def didChange(params: lsp.DidChangeTextDocumentParams) =
     mutex.lock.surround {
-      textDocumentSyncManager.didChange(in)
+      textDocumentSyncManager.didChange(params)
     }
 
-  def didClose(in: Invocation[DidCloseTextDocumentParams, IO]): IO[Unit] =
+  def didClose(params: lsp.DidCloseTextDocumentParams): IO[Unit] =
     mutex.lock.surround {
-      textDocumentSyncManager.didClose(in)
+      textDocumentSyncManager.didClose(params)
     }
 
-  def didSave(in: Invocation[DidSaveTextDocumentParams, IO]): IO[Unit] =
+  def didSave(params: lsp.DidSaveTextDocumentParams): IO[Unit] =
     mutex.lock
       .surround {
         for {
-          _    <- textDocumentSyncManager.didSave(in)
-          info <- bspStateManager.get(in.params.textDocument.uri.asNio)
+          _    <- textDocumentSyncManager.didSave(params)
+          info <- bspStateManager.get(URI(params.textDocument.uri))
         } yield info
       }
       .flatMap { info =>
@@ -68,7 +65,7 @@ class StateManager(
       bspStateManager.get(uri)
     }
 
-  def importBuild(client: Communicate[IO]): IO[Unit] =
+  def importBuild(client: SlsLanguageClient[IO]): IO[Unit] =
     mutex.lock.surround {
       bspStateManager.importBuild(client)
     }

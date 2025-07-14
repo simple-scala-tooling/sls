@@ -8,8 +8,6 @@ import bsp.InverseSourcesParams
 import cats.effect.kernel.Ref
 import cats.effect.std.AtomicCell
 import cats.effect.IO
-import langoustine.lsp.*
-import langoustine.lsp.structures.*
 import org.scala.abusers.pc.ScalaVersion
 import org.scala.abusers.sls.NioConverter.asNio
 import org.scala.abusers.sls.LoggingUtils.*
@@ -53,13 +51,13 @@ class BspStateManager(
 ) {
   import ScalaBuildTargetInformation.*
 
-  def importBuild(back: Communicate[IO]) =
+  def importBuild(client: SlsLanguageClient[IO]) =
     for {
-      _ <- back.logMessage("Starting build import.") // in the future this should be a task with progress
+      _ <- client.logMessage("Starting build import.") // in the future this should be a task with progress
       importedBuild <- getBuildInformation(bspServer)
       _ <- bspServer.generic.buildTargetCompile(CompileParams(targets = importedBuild.map(_.buildTarget.id).toList))
       _ <- targets.set(importedBuild)
-      _ <- back.logMessage("Build import finished.")
+      _ <- client.logMessage("Build import finished.")
     } yield ()
 
   private val byScalaVersion: Ordering[ScalaBuildTargetInformation] = new Ordering[ScalaBuildTargetInformation] {
@@ -115,15 +113,15 @@ class BspStateManager(
       state.getOrElse(uri, throw new IllegalStateException("Get should always be called after didOpen"))
     }
 
-  def didOpen(in: Invocation[DidOpenTextDocumentParams, IO]): IO[Unit] = {
-    val uri = in.params.textDocument.uri.asNio
+  def didOpen(client: SlsLanguageClient[IO], params: lsp.DidOpenTextDocumentParams): IO[Unit] = {
+    val uri = URI.create(params.textDocument.uri)
     sourcesToTargets.evalUpdate(state =>
       for {
         possibleIds <- buildTargetInverseSources(uri)
         targets0    <- targets.get
         possibleBuildTargets = possibleIds.flatMap(id => targets0.find(_.buildTarget.id == id))
         bestBuildTarget      = possibleBuildTargets.maxBy(_.buildTarget.project.scala.map(_.data.scalaVersion))
-        _ <- in.toClient.logDebug(s"Best build target for $uri is ${bestBuildTarget.toString}")
+        _ <- client.logDebug(s"Best build target for $uri is ${bestBuildTarget.toString}")
       } yield state.updated(uri, bestBuildTarget)
     )
   }

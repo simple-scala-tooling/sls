@@ -4,30 +4,29 @@ import cats.effect.*
 import cats.effect.std.AtomicCell
 import cats.parse.LocationMap
 import cats.syntax.all.*
-import langoustine.lsp.aliases.TextDocumentContentChangeEvent
-import langoustine.lsp.structures.*
-import langoustine.lsp.Invocation
 
 import java.net.URI
+import lsp.TextDocumentContentChangePartial
+import lsp.TextDocumentContentChangeWholeDocument
 
 case class DocumentState(content: String, uri: URI) {
   private lazy val locationMap = LocationMap(content)
 
-  extension (lspPos: Position) {
+  extension (lspPos: lsp.Position) {
     def toOffset: Int =
-      locationMap.toOffset(lspPos.line.value, lspPos.character.value).getOrElse(-1 /* no such line */ )
+      locationMap.toOffset(lspPos.line, lspPos.character).getOrElse(-1 /* no such line */ )
   }
 
-  def processEdits(edits: Vector[TextDocumentContentChangeEvent]): DocumentState =
+  def processEdits(edits: List[lsp.TextDocumentContentChangeEvent]): DocumentState =
     edits.toList
       .foldLeft(this) {
-        case (_, incremental: TextDocumentContentChangeEvent.S0) => applyEdit(incremental)
-        case (_, full: TextDocumentContentChangeEvent.S1)        => DocumentState(full.text, uri)
+        case (_, lsp.TextDocumentContentChangeEvent.Case0Case(incremental)) => applyEdit(incremental)
+        case (_, lsp.TextDocumentContentChangeEvent.Case1Case(full))        => DocumentState(full.text, uri)
         case _                                                   => sys.error("Illegal State Exception")
       }
 
-  private def applyEdit(edit: TextDocumentContentChangeEvent.S0): DocumentState = {
-    val Range(startPos, endPos) = edit.range
+  private def applyEdit(edit: lsp.TextDocumentContentChangePartial): DocumentState = {
+    val lsp.Range(startPos, endPos) = edit.range
     val startOffset             = startPos.toOffset
     val endOffset               = endPos.toOffset
     val init                    = content.take(startOffset)
@@ -44,19 +43,19 @@ object TextDocumentSyncManager {
 class TextDocumentSyncManager(val documents: AtomicCell[IO, Map[URI, DocumentState]]) {
   import NioConverter.*
 
-  def didOpen(in: Invocation[DidOpenTextDocumentParams, IO]): IO[Unit] =
-    getOrCreateDocument(in.params.textDocument.uri.asNio, in.params.textDocument.text.some).void
+  def didOpen(params: lsp.DidOpenTextDocumentParams): IO[Unit] =
+    getOrCreateDocument(URI.create(params.textDocument.uri), params.textDocument.text.some).void
 
-  def didChange(in: Invocation[DidChangeTextDocumentParams, IO]) =
-    onTextEditReceived(in.params.textDocument.uri.asNio, in.params.contentChanges)
+  def didChange(params: lsp.DidChangeTextDocumentParams) =
+    onTextEditReceived(URI(params.textDocument.uri), params.contentChanges)
 
-  def didClose(in: Invocation[DidCloseTextDocumentParams, IO]): IO[Unit] =
-    documents.update(_.removed(in.params.textDocument.uri.asNio))
+  def didClose(params: lsp.DidCloseTextDocumentParams): IO[Unit] =
+    documents.update(_.removed(URI(params.textDocument.uri)))
 
-  def didSave(in: Invocation[DidSaveTextDocumentParams, IO]): IO[Unit] =
-    getOrCreateDocument(in.params.textDocument.uri.asNio, in.params.text.toOption).void
+  def didSave(params: lsp.DidSaveTextDocumentParams): IO[Unit] =
+    getOrCreateDocument(URI(params.textDocument.uri), params.text).void
 
-  private def onTextEditReceived(uri: URI, edits: Vector[TextDocumentContentChangeEvent]): IO[Unit] =
+  private def onTextEditReceived(uri: URI, edits: List[lsp.TextDocumentContentChangeEvent]): IO[Unit] =
     for {
       doc <- getOrCreateDocument(uri, None)
       _   <- documents.update(_.updated(uri, doc.processEdits(edits)))

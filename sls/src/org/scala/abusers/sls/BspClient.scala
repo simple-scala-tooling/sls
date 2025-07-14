@@ -16,8 +16,6 @@ import fs2.io.*
 import fs2.io.net.Network
 import jsonrpclib.fs2.*
 import jsonrpclib.Endpoint
-import langoustine.lsp.requests.window
-import langoustine.lsp.Communicate
 import smithy4sbsp.bsp4s.BSPCodecs
 
 def makeBspClient(path: String, channel: FS2Channel[IO], report: String => IO[Unit]): Resource[IO, BuildServer] =
@@ -37,28 +35,28 @@ def makeBspClient(path: String, channel: FS2Channel[IO], report: String => IO[Un
     }
     .as(
       BuildServer(
-        BSPCodecs.clientStub(bsp.BuildServer, channel),
-        BSPCodecs.clientStub(bsp.jvm.JvmBuildServer, channel),
-        BSPCodecs.clientStub(bsp.scala_.ScalaBuildServer, channel),
-        BSPCodecs.clientStub(bsp.java_.JavaBuildServer, channel),
+        BSPCodecs.clientStub(bsp.BuildServer, channel).toTry.get,
+        BSPCodecs.clientStub(bsp.jvm.JvmBuildServer, channel).toTry.get,
+        BSPCodecs.clientStub(bsp.scala_.ScalaBuildServer, channel).toTry.get,
+        BSPCodecs.clientStub(bsp.java_.JavaBuildServer, channel).toTry.get,
       )
     )
 
-def bspClientHandler(lspClient: Communicate[IO], diagnosticManager: DiagnosticManager): List[Endpoint[IO]] =
+def bspClientHandler(lspClient: SlsLanguageClient[IO], diagnosticManager: DiagnosticManager): List[Endpoint[IO]] =
   BSPCodecs.serverEndpoints(
     new BuildClient[IO] {
-      private def notify(msg: String) =
-        lspClient.notification(
-          window.showMessage(
-            langoustine.lsp.structures
-              .ShowMessageParams(`type` = langoustine.lsp.enumerations.MessageType.Info, message = msg)
-          )
-        )
+      private def notify(msg: String) = null
+        // lspClient.notification(
+        //   window.showMessage(
+        //     langoustine.lsp.structures
+        //       .ShowMessageParams(`type` = langoustine.lsp.enumerations.MessageType.Info, message = msg)
+        //   )
+        // )
 
       def onBuildLogMessage(input: LogMessageParams): IO[Unit] = IO.unit
 
       def onBuildPublishDiagnostics(input: PublishDiagnosticsParams): IO[Unit] =
-        notify(s"We've just got $input") >>
+        // notify(s"We've just got $input") >>
           diagnosticManager.onBuildPublishDiagnostics(lspClient, input)
 
       def onBuildShowMessage(input: ShowMessageParams): IO[Unit] = IO.unit
@@ -75,4 +73,4 @@ def bspClientHandler(lspClient: Communicate[IO], diagnosticManager: DiagnosticMa
 
       def onRunPrintStdout(input: PrintParams): IO[Unit] = IO.unit
     }
-  )
+  ).toTry.get
