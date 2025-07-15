@@ -6,8 +6,6 @@ import cats.parse.LocationMap
 import cats.syntax.all.*
 
 import java.net.URI
-import lsp.TextDocumentContentChangePartial
-import lsp.TextDocumentContentChangeWholeDocument
 
 case class DocumentState(content: String, uri: URI) {
   private lazy val locationMap = LocationMap(content)
@@ -22,15 +20,15 @@ case class DocumentState(content: String, uri: URI) {
       .foldLeft(this) {
         case (_, lsp.TextDocumentContentChangeEvent.Case0Case(incremental)) => applyEdit(incremental)
         case (_, lsp.TextDocumentContentChangeEvent.Case1Case(full))        => DocumentState(full.text, uri)
-        case _                                                   => sys.error("Illegal State Exception")
+        case _                                                              => sys.error("Illegal State Exception")
       }
 
   private def applyEdit(edit: lsp.TextDocumentContentChangePartial): DocumentState = {
     val lsp.Range(startPos, endPos) = edit.range
-    val startOffset             = startPos.toOffset
-    val endOffset               = endPos.toOffset
-    val init                    = content.take(startOffset)
-    val end                     = content.drop(endOffset)
+    val startOffset                 = startPos.toOffset
+    val endOffset                   = endPos.toOffset
+    val init                        = content.take(startOffset)
+    val end                         = content.drop(endOffset)
     DocumentState(init ++ edit.text ++ end, uri)
   }
 }
@@ -41,7 +39,6 @@ object TextDocumentSyncManager {
 }
 
 class TextDocumentSyncManager(val documents: AtomicCell[IO, Map[URI, DocumentState]]) {
-  import NioConverter.*
 
   def didOpen(params: lsp.DidOpenTextDocumentParams): IO[Unit] =
     getOrCreateDocument(URI.create(params.textDocument.uri), params.textDocument.text.some).void

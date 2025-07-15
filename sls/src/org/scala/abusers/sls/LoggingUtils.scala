@@ -6,10 +6,10 @@ object LoggingUtils {
   extension (client: SlsLanguageClient[IO]) {
     def sendMessage(msg: String): IO[Unit] =
       client.windowLogMessage(lsp.LogMessageParams(lsp.MessageType.INFO, msg))
-      // back.notification(
-      //   requests.window.showMessage,
-      //   ShowMessageParams(enumerations.MessageType.Info, msg),
-      // ) *> logMessage(msg)
+    // back.notification(
+    //   requests.window.showMessage,
+    //   ShowMessageParams(enumerations.MessageType.Info, msg),
+    // ) *> logMessage(msg)
 
     def logMessage(msg: String): IO[Unit] =
       client.windowLogMessage(lsp.LogMessageParams(lsp.MessageType.INFO, msg))

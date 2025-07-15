@@ -5,7 +5,6 @@ import cats.effect.IO
 import com.evolution.scache.Cache as SCache
 import com.evolution.scache.ExpiringCache
 import coursierapi.*
-
 import org.scala.abusers.sls.ScalaBuildTargetInformation
 import org.scala.abusers.sls.ScalaBuildTargetInformation.*
 import os.Path

@@ -9,7 +9,6 @@ import cats.effect.kernel.Ref
 import cats.effect.std.AtomicCell
 import cats.effect.IO
 import org.scala.abusers.pc.ScalaVersion
-import org.scala.abusers.sls.NioConverter.asNio
 import org.scala.abusers.sls.LoggingUtils.*
 
 import java.net.URI
@@ -53,7 +52,7 @@ class BspStateManager(
 
   def importBuild(client: SlsLanguageClient[IO]) =
     for {
-      _ <- client.logMessage("Starting build import.") // in the future this should be a task with progress
+      _             <- client.logMessage("Starting build import.") // in the future this should be a task with progress
       importedBuild <- getBuildInformation(bspServer)
       _ <- bspServer.generic.buildTargetCompile(CompileParams(targets = importedBuild.map(_.buildTarget.id).toList))
       _ <- targets.set(importedBuild)

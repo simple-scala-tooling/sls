@@ -43,9 +43,10 @@ def makeBspClient(path: String, channel: FS2Channel[IO], report: String => IO[Un
     )
 
 def bspClientHandler(lspClient: SlsLanguageClient[IO], diagnosticManager: DiagnosticManager): List[Endpoint[IO]] =
-  BSPCodecs.serverEndpoints(
-    new BuildClient[IO] {
-      private def notify(msg: String) = null
+  BSPCodecs
+    .serverEndpoints(
+      new BuildClient[IO] {
+
         // lspClient.notification(
         //   window.showMessage(
         //     langoustine.lsp.structures
@@ -53,24 +54,26 @@ def bspClientHandler(lspClient: SlsLanguageClient[IO], diagnosticManager: Diagno
         //   )
         // )
 
-      def onBuildLogMessage(input: LogMessageParams): IO[Unit] = IO.unit
+        def onBuildLogMessage(input: LogMessageParams): IO[Unit] = IO.unit
 
-      def onBuildPublishDiagnostics(input: PublishDiagnosticsParams): IO[Unit] =
-        // notify(s"We've just got $input") >>
+        def onBuildPublishDiagnostics(input: PublishDiagnosticsParams): IO[Unit] =
+          // notify(s"We've just got $input") >>
           diagnosticManager.onBuildPublishDiagnostics(lspClient, input)
 
-      def onBuildShowMessage(input: ShowMessageParams): IO[Unit] = IO.unit
+        def onBuildShowMessage(input: ShowMessageParams): IO[Unit] = IO.unit
 
-      def onBuildTargetDidChange(input: DidChangeBuildTarget): IO[Unit] = IO.unit
+        def onBuildTargetDidChange(input: DidChangeBuildTarget): IO[Unit] = IO.unit
 
-      def onBuildTaskFinish(input: OnBuildTaskFinishInput): IO[Unit] = IO.unit
+        def onBuildTaskFinish(input: OnBuildTaskFinishInput): IO[Unit] = IO.unit
 
-      def onBuildTaskProgress(input: TaskProgressParams): IO[Unit] = IO.unit
+        def onBuildTaskProgress(input: TaskProgressParams): IO[Unit] = IO.unit
 
-      def onBuildTaskStart(input: OnBuildTaskStartInput): IO[Unit] = IO.unit
+        def onBuildTaskStart(input: OnBuildTaskStartInput): IO[Unit] = IO.unit
 
-      def onRunPrintStderr(input: PrintParams): IO[Unit] = IO.unit
+        def onRunPrintStderr(input: PrintParams): IO[Unit] = IO.unit
 
-      def onRunPrintStdout(input: PrintParams): IO[Unit] = IO.unit
-    }
-  ).toTry.get
+        def onRunPrintStdout(input: PrintParams): IO[Unit] = IO.unit
+      }
+    )
+    .toTry
+    .get

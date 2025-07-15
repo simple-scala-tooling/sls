@@ -5,22 +5,19 @@ import bsp.PublishDiagnosticsParams as BspPublishDiagnosticsParams
 import cats.effect.std.MapRef
 import cats.effect.IO
 import cats.syntax.all.*
-import org.scala.abusers.sls.NioConverter.*
 import smithy4s.json.Json
-
-import java.net.URI
 
 /** Diagnostic State Manager
   *
   * This class is reposnobile for holding the state of the diagnostic displayed on the client
   *
   * Proposed heuristic is: On file save we trigger compilation, and this results in notifications being sent from BSP
-  * server. We will keep adding diagnostics, and will clean them only when [[PublishDiagnosticsParams.reset]] is
-  * set to true.
+  * server. We will keep adding diagnostics, and will clean them only when [[PublishDiagnosticsParams.reset]] is set to
+  * true.
   *
   * @param publishedDiagnostics
   */
- // FIXME revert this to URI
+// FIXME revert this to URI
 class DiagnosticManager(publishedDiagnostics: MapRef[IO, String, Option[Set[lsp.Diagnostic]]]) {
   private def convertDiagnostic(bspDiag: BspDiagnostic): lsp.Diagnostic = {
     val data = Json.writeBlob(bspDiag)
@@ -46,7 +43,9 @@ class DiagnosticManager(publishedDiagnostics: MapRef[IO, String, Option[Set[lsp.
     if input.reset then {
       for {
         _ <- publishedDiagnostics(input.textDocument.uri.value).set(lspDiags.some)
-        _ <- client.textDocumentPublishDiagnostics(lsp.PublishDiagnosticsParams(input.textDocument.uri.value, lspDiags.toList))
+        _ <- client.textDocumentPublishDiagnostics(
+          lsp.PublishDiagnosticsParams(input.textDocument.uri.value, lspDiags.toList)
+        )
       } yield ()
 
     } else {

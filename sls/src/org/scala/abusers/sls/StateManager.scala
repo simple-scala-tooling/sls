@@ -3,7 +3,6 @@ package org.scala.abusers.sls
 import bsp.CompileParams
 import cats.effect.std.Mutex
 import cats.effect.IO
-import org.scala.abusers.sls.NioConverter.asNio
 
 import java.net.URI
 

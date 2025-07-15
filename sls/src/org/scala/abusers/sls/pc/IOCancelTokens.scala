@@ -27,7 +27,7 @@ object IOCancelTokens {
             )
 
             def checkCanceled(): Unit =
-              if onCancelVal.getNow(false) then{
+              if onCancelVal.getNow(false) then {
                 logger.info(s"Throwing CancellationException")
                 throw new CancellationException()
               }

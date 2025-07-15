@@ -2,10 +2,10 @@ package org.scala.abusers.sls
 
 import cats.effect.*
 import jsonrpclib.fs2.catsMonadic
-import org.scala.abusers.pc.IOCancelTokens
-import org.scala.abusers.pc.PresentationCompilerProvider
 import jsonrpclib.fs2.FS2Channel
 import jsonrpclib.smithy4sinterop.ClientStub
+import org.scala.abusers.pc.IOCancelTokens
+import org.scala.abusers.pc.PresentationCompilerProvider
 
 case class BuildServer(
     generic: bsp.BuildServer[IO],
@@ -49,16 +49,18 @@ object SimpleScalaServer extends IOApp.Simple {
       .drain
       .as(ExitCode.Success)
 
-  def stream(impl: ServerImpl) = {
+  def stream(impl: ServerImpl) =
     for {
       fs2Channel <- FS2Channel.stream[IO](cancelTemplate = None)
       client = ClientStub(SlsLanguageClient, fs2Channel).toTry.get
       channelWithEndpoints <- fs2Channel.withEndpointsStream(ServerEndpoints(impl).toTry.get)
-      _ <- fs2.Stream.eval(impl.client.complete(client).void)
-      res <- fs2.Stream.never[IO]
+      _                    <- fs2.Stream.eval(impl.client.complete(client).void)
+      res <- fs2.Stream
+        .never[IO]
         .concurrently(
           // STDIN
-          fs2.io.stdin[IO](512)
+          fs2.io
+            .stdin[IO](512)
             .through(jsonrpclib.fs2.lsp.decodeMessages)
             .through(channelWithEndpoints.inputOrBounce)
         )
@@ -69,8 +71,6 @@ object SimpleScalaServer extends IOApp.Simple {
             .through(fs2.io.stdout[IO])
         )
     } yield res
-  }
-
 
   def server: Resource[IO, ServerImpl] =
     for {
@@ -84,5 +84,3 @@ object SimpleScalaServer extends IOApp.Simple {
       diagnosticManager <- DiagnosticManager.instance.toResource
     } yield ServerImpl(stateManager, pcProvider, cancelTokens, diagnosticManager, steward, bspClientDeferred)
 }
-
-

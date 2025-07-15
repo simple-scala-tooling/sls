@@ -1,8 +1,7 @@
 package org.scala.abusers.sls
 
-import org.scala.abusers.sls.NioConverter.asNio
-import weaver.SimpleIOSuite
 import lsp.*
+import weaver.SimpleIOSuite
 
 object TextDocumentSyncSuite extends SimpleIOSuite {
 
@@ -30,26 +29,23 @@ object TextDocumentSyncSuite extends SimpleIOSuite {
       TextDocumentItem(uri = uri, languageId = LanguageKind.SCALA, version = 0, text = text)
     )
 
-  loggedTest("applies full document change") { log =>
-    val uri    = "/home/Test.scala"
-    val client = TestClient(log)
+  test("applies full document change") { _ =>
+    val uri = "/home/Test.scala"
     for mgr <- TextDocumentSyncManager.instance
-    _       <- mgr.didOpen(client.input(open(uri, "Hello!")))
+    _       <- mgr.didOpen(open(uri, "Hello!"))
 
     _ <- mgr.didChange(
-      client.input(
-        DidChangeTextDocumentParams(
-          VersionedTextDocumentIdentifier(version = 1, uri = uri),
-          contentChanges = List(
-            TextDocumentContentChangeEvent
-              .Case1Case(
-                TextDocumentContentChangeWholeDocument(
-                  text = "val x = 1\nval y = 2"
-                )
+      DidChangeTextDocumentParams(
+        VersionedTextDocumentIdentifier(version = 1, uri = uri),
+        contentChanges = List(
+          TextDocumentContentChangeEvent
+            .Case1Case(
+              TextDocumentContentChangeWholeDocument(
+                text = "val x = 1\nval y = 2"
               )
-              .asInstanceOf[TextDocumentContentChangeEvent]
-          ),
-        )
+            )
+            .asInstanceOf[TextDocumentContentChangeEvent]
+        ),
       )
     )
 
@@ -58,20 +54,17 @@ object TextDocumentSyncSuite extends SimpleIOSuite {
 
   }
 
-  loggedTest("applies incremental document change at the beggining") { log =>
-    val uri    = "/home/Test.scala"
-    val client = TestClient(log)
+  test("applies incremental document change at the beggining") { _ =>
+    val uri = "/home/Test.scala"
     for mgr <- TextDocumentSyncManager.instance
-    _       <- mgr.didOpen(client.input(open(uri, "val z = 3")))
+    _       <- mgr.didOpen(open(uri, "val z = 3"))
 
     _ <- mgr.didChange(
-      client.input(
-        DidChangeTextDocumentParams(
-          VersionedTextDocumentIdentifier(version = 1, uri = uri),
-          contentChanges = List(
-            makeChange(startLine = 0, startChar = 0, endLine = 0, endChar = 0, text = "val x = 1\nval y = 2\n")
-          ),
-        )
+      DidChangeTextDocumentParams(
+        VersionedTextDocumentIdentifier(version = 1, uri = uri),
+        contentChanges = List(
+          makeChange(startLine = 0, startChar = 0, endLine = 0, endChar = 0, text = "val x = 1\nval y = 2\n")
+        ),
       )
     )
 
@@ -80,19 +73,16 @@ object TextDocumentSyncSuite extends SimpleIOSuite {
 
   }
 
-  loggedTest("applies incremental document change at the end") { log =>
-    val uri    = "/home/Test.scala"
-    val client = TestClient(log)
+  test("applies incremental document change at the end") { _ =>
+    val uri = "/home/Test.scala"
     for mgr <- TextDocumentSyncManager.instance
-    _       <- mgr.didOpen(client.input(open(uri, "val x = 1\nval y = 2")))
+    _       <- mgr.didOpen(open(uri, "val x = 1\nval y = 2"))
 
     // full document replacement
     _ <- mgr.didChange(
-      client.input(
-        DidChangeTextDocumentParams(
-          VersionedTextDocumentIdentifier(version = 1, uri = uri),
-          contentChanges = List(makeChange(startLine = 1, startChar = 9, endLine = 1, endChar = 9, text = "\n")),
-        )
+      DidChangeTextDocumentParams(
+        VersionedTextDocumentIdentifier(version = 1, uri = uri),
+        contentChanges = List(makeChange(startLine = 1, startChar = 9, endLine = 1, endChar = 9, text = "\n")),
       )
     )
 
@@ -101,21 +91,18 @@ object TextDocumentSyncSuite extends SimpleIOSuite {
 
   }
 
-  loggedTest("applies incremental document change with multi line change") { log =>
-    val uri    = "/home/Test.scala"
-    val client = TestClient(log)
+  test("applies incremental document change with multi line change") { _ =>
+    val uri = "/home/Test.scala"
     for mgr <- TextDocumentSyncManager.instance
-    _       <- mgr.didOpen(client.input(open(uri, "val x = 1\nval y = 2\nval z = 3")))
+    _       <- mgr.didOpen(open(uri, "val x = 1\nval y = 2\nval z = 3"))
 
     // full document replacement
     _ <- mgr.didChange(
-      client.input(
-        DidChangeTextDocumentParams(
-          VersionedTextDocumentIdentifier(version = 1, uri = uri),
-          contentChanges = List(
-            makeChange(startLine = 1, startChar = 9, endLine = 1, endChar = 9, text = "\nval xx = 3\nval yy = 4\n")
-          ),
-        )
+      DidChangeTextDocumentParams(
+        VersionedTextDocumentIdentifier(version = 1, uri = uri),
+        contentChanges = List(
+          makeChange(startLine = 1, startChar = 9, endLine = 1, endChar = 9, text = "\nval xx = 3\nval yy = 4\n")
+        ),
       )
     )
 
@@ -123,19 +110,16 @@ object TextDocumentSyncSuite extends SimpleIOSuite {
     yield expect.eql(expected = "val x = 1\nval y = 2\nval xx = 3\nval yy = 4\n\nval z = 3", found = doc.content)
   }
 
-  loggedTest("applies incremental document change with selection") { log =>
-    val uri    = "/home/Test.scala"
-    val client = TestClient(log)
+  test("applies incremental document change with selection") { _ =>
+    val uri = "/home/Test.scala"
     for mgr <- TextDocumentSyncManager.instance
-    _       <- mgr.didOpen(client.input(open(uri, "val x = 1\nval y = 2\nval z = 3")))
+    _       <- mgr.didOpen(open(uri, "val x = 1\nval y = 2\nval z = 3"))
 
     // full document replacement
     _ <- mgr.didChange(
-      client.input(
-        DidChangeTextDocumentParams(
-          VersionedTextDocumentIdentifier(version = 1, uri = uri),
-          contentChanges = List(makeChange(startLine = 1, startChar = 0, endLine = 1, endChar = 9, text = "p")),
-        )
+      DidChangeTextDocumentParams(
+        VersionedTextDocumentIdentifier(version = 1, uri = uri),
+        contentChanges = List(makeChange(startLine = 1, startChar = 0, endLine = 1, endChar = 9, text = "p")),
       )
     )
 

@@ -1,14 +1,8 @@
 package org.scala.abusers.pc
 
-import cats.instances.vector.*
-import cats.syntax.all.*
 // import coursier.util.Gather
 // import coursier.util.Monad
 // import coursier.util.Sync
-
-import java.util.concurrent.ExecutorService
-import scala.concurrent.ExecutionContext
-import scala.concurrent.ExecutionContextExecutorService
 
 /* Copied from coursier-cats-interop */
 object CoursiercatsInterop {
