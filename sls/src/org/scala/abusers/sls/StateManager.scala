@@ -8,8 +8,8 @@ import java.net.URI
 
 object StateManager {
 
-  def instance(textDocumentSyncManager: TextDocumentSyncManager, bspStateManager: BspStateManager): IO[StateManager] =
-    Mutex[IO].map(StateManager(textDocumentSyncManager, bspStateManager, _))
+  def instance(lspClient: SlsLanguageClient[IO], textDocumentSyncManager: TextDocumentSyncManager, bspStateManager: BspStateManager): IO[StateManager] =
+    Mutex[IO].map(StateManager(lspClient, textDocumentSyncManager, bspStateManager, _))
 
 }
 
@@ -22,13 +22,14 @@ object StateManager {
   * By unifying this in single manager, we can control what has to be synchronized.
   */
 class StateManager(
+    lspClient: SlsLanguageClient[IO],
     textDocumentSyncManager: TextDocumentSyncManager,
     bspStateManager: BspStateManager,
     mutex: Mutex[IO],
 ) {
-  def didOpen(client: SlsLanguageClient[IO], params: lsp.DidOpenTextDocumentParams): IO[Unit] =
+  def didOpen(params: lsp.DidOpenTextDocumentParams): IO[Unit] =
     mutex.lock.surround {
-      textDocumentSyncManager.didOpen(params) *> bspStateManager.didOpen(client, params)
+      textDocumentSyncManager.didOpen(params) *> bspStateManager.didOpen(lspClient, params)
     }
 
   def didChange(params: lsp.DidChangeTextDocumentParams) =
@@ -64,9 +65,9 @@ class StateManager(
       bspStateManager.get(uri)
     }
 
-  def importBuild(client: SlsLanguageClient[IO]): IO[Unit] =
+  def importBuild: IO[Unit] =
     mutex.lock.surround {
-      bspStateManager.importBuild(client)
+      bspStateManager.importBuild
     }
 
 }

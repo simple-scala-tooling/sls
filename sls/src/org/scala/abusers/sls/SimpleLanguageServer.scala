@@ -1,11 +1,12 @@
 package org.scala.abusers.sls
 
 import cats.effect.*
-import jsonrpclib.fs2.catsMonadic
-import jsonrpclib.fs2.FS2Channel
 import jsonrpclib.smithy4sinterop.ClientStub
 import org.scala.abusers.pc.IOCancelTokens
 import org.scala.abusers.pc.PresentationCompilerProvider
+import jsonrpclib.fs2.*
+import jsonrpclib.CallId
+import cats.syntax.all.*
 
 case class BuildServer(
     generic: bsp.BuildServer[IO],
@@ -22,40 +23,25 @@ object BuildServer {
     SmithySuspend.sus(client.map(_.java)),
   )
 }
-// object SimpleScalaServerApp extends IOApp.Simple {
-//   val server = for {
-//     steward           <- ResourceSupervisor[IO]
-//     pcProvider        <- PresentationCompilerProvider.instance.toResource
-//     textDocumentSync  <- TextDocumentSyncManager.instance.toResource
-//     bspClientDeferred <- Deferred[IO, BuildServer].toResource
-//     bspStateManager   <- BspStateManager.instance(BuildServer.suspend(bspClientDeferred.get)).toResource
-//     stateManager      <- StateManager.instance(textDocumentSync, bspStateManager).toResource
-//     cancelTokens      <- IOCancelTokens.instance
-//     diagnosticManager <- DiagnosticManager.instance.toResource
-//   } yield ServerImpl(stateManager, pcProvider, cancelTokens, diagnosticManager, steward, bspClientDeferred)
-
-// }
 
 object SimpleScalaServer extends IOApp.Simple {
   import jsonrpclib.smithy4sinterop.ServerEndpoints
 
+  val cancelEndpoint = CancelTemplate.make[CallId]("$/cancel", identity, identity)
+
   def run: IO[Unit] =
-    fs2.Stream
-      .resource(server)
-      .flatMap { impl =>
-        stream(impl)
-      }
+    stream
       .compile
       .drain
       .as(ExitCode.Success)
 
-  def stream(impl: ServerImpl) =
+  def stream =
     for {
-      fs2Channel <- FS2Channel.stream[IO](cancelTemplate = None)
+      fs2Channel <- FS2Channel.stream[IO](cancelTemplate = cancelEndpoint.some)
       client = ClientStub(SlsLanguageClient, fs2Channel).toTry.get
-      channelWithEndpoints <- fs2Channel.withEndpointsStream(ServerEndpoints(impl).toTry.get)
-      _                    <- fs2.Stream.eval(impl.client.complete(client).void)
-      res <- fs2.Stream
+      serverImpl <- fs2.Stream.resource(server(client))
+      channelWithEndpoints <- fs2Channel.withEndpointsStream(ServerEndpoints(serverImpl).toTry.get)
+      res <- fs2.Stream // Refactor to be single threaded
         .never[IO]
         .concurrently(
           // STDIN
@@ -72,15 +58,15 @@ object SimpleScalaServer extends IOApp.Simple {
         )
     } yield res
 
-  def server: Resource[IO, ServerImpl] =
+  def server(lspClient: SlsLanguageClient[IO]): Resource[IO, ServerImpl] =
     for {
       steward           <- ResourceSupervisor[IO]
       pcProvider        <- PresentationCompilerProvider.instance.toResource
       textDocumentSync  <- TextDocumentSyncManager.instance.toResource
       bspClientDeferred <- Deferred[IO, BuildServer].toResource
-      bspStateManager   <- BspStateManager.instance(BuildServer.suspend(bspClientDeferred.get)).toResource
-      stateManager      <- StateManager.instance(textDocumentSync, bspStateManager).toResource
+      bspStateManager   <- BspStateManager.instance(lspClient, BuildServer.suspend(bspClientDeferred.get)).toResource
+      stateManager      <- StateManager.instance(lspClient, textDocumentSync, bspStateManager).toResource
       cancelTokens      <- IOCancelTokens.instance
       diagnosticManager <- DiagnosticManager.instance.toResource
-    } yield ServerImpl(stateManager, pcProvider, cancelTokens, diagnosticManager, steward, bspClientDeferred)
+    } yield ServerImpl(stateManager, pcProvider, cancelTokens, diagnosticManager, steward, bspClientDeferred, lspClient)
 }

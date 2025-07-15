@@ -14,8 +14,8 @@ import cats.syntax.all.*
 import com.comcast.ip4s.*
 import fs2.io.*
 import fs2.io.net.Network
-import jsonrpclib.fs2.*
 import jsonrpclib.Endpoint
+import jsonrpclib.fs2.{lsp => jsonrpclibLsp, *}
 import smithy4sbsp.bsp4s.BSPCodecs
 
 def makeBspClient(path: String, channel: FS2Channel[IO], report: String => IO[Unit]): Resource[IO, BuildServer] =
@@ -25,9 +25,9 @@ def makeBspClient(path: String, channel: FS2Channel[IO], report: String => IO[Un
       fs2.Stream
         .eval(IO.never)
         .concurrently(
-          socket.reads.through(lsp.decodeMessages).evalTap(m => report(m.toString)).through(channel.inputOrBounce)
+          socket.reads.through(jsonrpclibLsp.decodeMessages).evalTap(m => report(m.toString)).through(channel.inputOrBounce)
         )
-        .concurrently(channel.output.through(lsp.encodeMessages).through(socket.writes))
+        .concurrently(channel.output.through(jsonrpclibLsp.encodeMessages).through(socket.writes))
         .compile
         .drain
         .guarantee(IO.consoleForIO.errorln("Terminating server"))
@@ -47,14 +47,12 @@ def bspClientHandler(lspClient: SlsLanguageClient[IO], diagnosticManager: Diagno
     .serverEndpoints(
       new BuildClient[IO] {
 
-        // lspClient.notification(
-        //   window.showMessage(
-        //     langoustine.lsp.structures
-        //       .ShowMessageParams(`type` = langoustine.lsp.enumerations.MessageType.Info, message = msg)
-        //   )
-        // )
+        private def notify(msg: String) =
+          lspClient.windowShowMessage(
+            lsp.ShowMessageParams(_type = lsp.MessageType.INFO, message = msg)
+          )
 
-        def onBuildLogMessage(input: LogMessageParams): IO[Unit] = IO.unit
+        def onBuildLogMessage(input: LogMessageParams): IO[Unit] = IO.unit // we want some logging to file here
 
         def onBuildPublishDiagnostics(input: PublishDiagnosticsParams): IO[Unit] =
           // notify(s"We've just got $input") >>

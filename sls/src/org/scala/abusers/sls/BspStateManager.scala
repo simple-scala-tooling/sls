@@ -29,12 +29,12 @@ object ScalaBuildTargetInformation {
 
 object BspStateManager {
 
-  def instance(bspServer: BuildServer): IO[BspStateManager] =
+  def instance(lspClient: SlsLanguageClient[IO], bspServer: BuildServer): IO[BspStateManager] =
     // We should track this in progress bar. Think of this as `Import Build`
     for {
       sourcesToTargets <- AtomicCell[IO].of(Map[URI, ScalaBuildTargetInformation]())
       buildTargets     <- Ref.of[IO, Set[ScalaBuildTargetInformation]](Set.empty)
-    } yield BspStateManager(bspServer, sourcesToTargets, buildTargets)
+    } yield BspStateManager(lspClient, bspServer, sourcesToTargets, buildTargets)
 }
 
 /** Class responsible for tracking and handling map between file and target we want to compile it against
@@ -44,19 +44,20 @@ object BspStateManager {
   * feature Another option will be to default to latest version which after all I'll default to right now
   */
 class BspStateManager(
+    lspClient: SlsLanguageClient[IO],
     val bspServer: BuildServer,
     sourcesToTargets: AtomicCell[IO, Map[URI, ScalaBuildTargetInformation]],
     targets: Ref[IO, Set[ScalaBuildTargetInformation]],
 ) {
   import ScalaBuildTargetInformation.*
 
-  def importBuild(client: SlsLanguageClient[IO]) =
+  def importBuild =
     for {
-      _             <- client.logMessage("Starting build import.") // in the future this should be a task with progress
+      _             <- lspClient.logMessage("Starting build import.") // in the future this should be a task with progress
       importedBuild <- getBuildInformation(bspServer)
       _ <- bspServer.generic.buildTargetCompile(CompileParams(targets = importedBuild.map(_.buildTarget.id).toList))
       _ <- targets.set(importedBuild)
-      _ <- client.logMessage("Build import finished.")
+      _ <- lspClient.logMessage("Build import finished.")
     } yield ()
 
   private val byScalaVersion: Ordering[ScalaBuildTargetInformation] = new Ordering[ScalaBuildTargetInformation] {
