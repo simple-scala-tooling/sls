@@ -8,10 +8,7 @@ import bsp.InverseSourcesParams
 import cats.effect.kernel.Ref
 import cats.effect.std.AtomicCell
 import cats.effect.IO
-import langoustine.lsp.*
-import langoustine.lsp.structures.*
 import org.scala.abusers.pc.ScalaVersion
-import org.scala.abusers.sls.NioConverter.asNio
 import org.scala.abusers.sls.LoggingUtils.*
 
 import java.net.URI
@@ -32,12 +29,12 @@ object ScalaBuildTargetInformation {
 
 object BspStateManager {
 
-  def instance(bspServer: BuildServer): IO[BspStateManager] =
+  def instance(lspClient: SlsLanguageClient[IO], bspServer: BuildServer): IO[BspStateManager] =
     // We should track this in progress bar. Think of this as `Import Build`
     for {
       sourcesToTargets <- AtomicCell[IO].of(Map[URI, ScalaBuildTargetInformation]())
       buildTargets     <- Ref.of[IO, Set[ScalaBuildTargetInformation]](Set.empty)
-    } yield BspStateManager(bspServer, sourcesToTargets, buildTargets)
+    } yield BspStateManager(lspClient, bspServer, sourcesToTargets, buildTargets)
 }
 
 /** Class responsible for tracking and handling map between file and target we want to compile it against
@@ -47,19 +44,20 @@ object BspStateManager {
   * feature Another option will be to default to latest version which after all I'll default to right now
   */
 class BspStateManager(
+    lspClient: SlsLanguageClient[IO],
     val bspServer: BuildServer,
     sourcesToTargets: AtomicCell[IO, Map[URI, ScalaBuildTargetInformation]],
     targets: Ref[IO, Set[ScalaBuildTargetInformation]],
 ) {
   import ScalaBuildTargetInformation.*
 
-  def importBuild(back: Communicate[IO]) =
+  def importBuild =
     for {
-      _ <- back.logMessage("Starting build import.") // in the future this should be a task with progress
+      _             <- lspClient.logMessage("Starting build import.") // in the future this should be a task with progress
       importedBuild <- getBuildInformation(bspServer)
       _ <- bspServer.generic.buildTargetCompile(CompileParams(targets = importedBuild.map(_.buildTarget.id).toList))
       _ <- targets.set(importedBuild)
-      _ <- back.logMessage("Build import finished.")
+      _ <- lspClient.logMessage("Build import finished.")
     } yield ()
 
   private val byScalaVersion: Ordering[ScalaBuildTargetInformation] = new Ordering[ScalaBuildTargetInformation] {
@@ -115,15 +113,15 @@ class BspStateManager(
       state.getOrElse(uri, throw new IllegalStateException("Get should always be called after didOpen"))
     }
 
-  def didOpen(in: Invocation[DidOpenTextDocumentParams, IO]): IO[Unit] = {
-    val uri = in.params.textDocument.uri.asNio
+  def didOpen(client: SlsLanguageClient[IO], params: lsp.DidOpenTextDocumentParams): IO[Unit] = {
+    val uri = URI.create(params.textDocument.uri)
     sourcesToTargets.evalUpdate(state =>
       for {
         possibleIds <- buildTargetInverseSources(uri)
         targets0    <- targets.get
         possibleBuildTargets = possibleIds.flatMap(id => targets0.find(_.buildTarget.id == id))
         bestBuildTarget      = possibleBuildTargets.maxBy(_.buildTarget.project.scala.map(_.data.scalaVersion))
-        _ <- in.toClient.logDebug(s"Best build target for $uri is ${bestBuildTarget.toString}")
+        _ <- client.logDebug(s"Best build target for $uri is ${bestBuildTarget.toString}")
       } yield state.updated(uri, bestBuildTarget)
     )
   }

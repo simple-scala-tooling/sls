@@ -1,11 +1,19 @@
+import mill.eval.Evaluator
+import smithy4s.codegen.LSP
 import com.goyeau.mill.scalafix.ScalafixModule
+import scala.collection.immutable.ListSet
 import coursier.core.Repository
 import coursier.maven.MavenRepository
 import mill._
 import mill.define.Sources
 import scalalib._
+import smithy4s.codegen.mill._
 
+import $ivy.`com.disneystreaming.smithy4s::smithy4s-mill-codegen-plugin_mill0.12:0.18.37`
 import $ivy.`com.goyeau::mill-scalafix::0.5.0`
+
+val jsonrpcVersion     = "0.1.0"
+val smithyVersion      = "1.57.1"
 
 trait CommonScalaModule extends ScalaModule with ScalafixModule {
   override def repositoriesTask: Task[Seq[Repository]] = T.task {
@@ -16,28 +24,39 @@ trait CommonScalaModule extends ScalaModule with ScalafixModule {
     ) ++ super.repositoriesTask()
   }
 
-  def scalaVersion = "3.7.0"
+  def scalaVersion = "3.7.2-RC1-bin-20250616-61d9887-NIGHTLY"
   def scalacOptions = Seq("-no-indent", "-Wunused:all")
+}
+
+object slsSmithy extends CommonScalaModule with Smithy4sModule {
+
+  override def ivyDeps = Agg(
+    ivy"com.disneystreaming.smithy4s::smithy4s-core:${smithy4sVersion()}",
+    ivy"tech.neander:jsonrpclib-smithy:$jsonrpcVersion",
+    ivy"io.github.simple-scala-tooling:lsp-smithy-definitions:1f4b6e9",
+  )
 }
 
 object sls extends CommonScalaModule {
 
   def mainClass = Some("org.scala.abusers.sls.SimpleScalaServer")
 
+  def moduleDeps: Seq[JavaModule] = Seq(slsSmithy)
+
   def ivyDeps = Agg(
-    ivy"com.github.plokhotnyuk.jsoniter-scala:jsoniter-scala-core_2.13:2.35.2".forceVersion(),
+    ivy"org.typelevel::cats-effect:3.6.2",
     ivy"co.fs2::fs2-io:3.13.0-M2",
-    ivy"tech.neander::jsonrpclib-fs2::0.0.8+26-13de833b-SNAPSHOT".forceVersion(),
+    ivy"io.scalaland::chimney:1.8.1",
+    ivy"io.scalaland::chimney-java-collections:1.8.1",
+    ivy"tech.neander::jsonrpclib-fs2::$jsonrpcVersion",
     ivy"ch.qos.logback:logback-classic:1.4.14",
-    ivy"tech.neander::langoustine-app::0.0.22",
     ivy"com.lihaoyi::os-lib:0.11.4",
-    ivy"org.polyvariant.smithy4s-bsp::bsp4s:0.4.1",
-    ivy"org.scalameta:mtags-interfaces:1.5.1:",
+    ivy"org.polyvariant.smithy4s-bsp::bsp4s:0.5.0",
+    ivy"org.scalameta:mtags-interfaces:1.5.1",
     ivy"com.evolution::scache:5.1.2",
     ivy"org.typelevel::cats-parse:1.1.0",
-    ivy"io.get-coursier:coursier_2.13:2.1.24"
-      .excludeOrg("org.scala-lang"),
-  ).map(_.exclude("com.github.plokhotnyuk.jsoniter-scala" -> "jsoniter-scala-core_3"))
+    ivy"io.get-coursier:interface:1.0.28"
+  )
 
   object test extends ScalaTests {
     def ivyDeps = Agg(

@@ -1,10 +1,10 @@
 package org.scala.abusers.sls
 
 import cats.effect.*
-import jsonrpclib.fs2.catsMonadic
-import langoustine.lsp.*
-import langoustine.lsp.all.*
-import langoustine.lsp.app.*
+import cats.syntax.all.*
+import jsonrpclib.fs2.*
+import jsonrpclib.smithy4sinterop.ClientStub
+import jsonrpclib.CallId
 import org.scala.abusers.pc.IOCancelTokens
 import org.scala.abusers.pc.PresentationCompilerProvider
 
@@ -24,37 +24,50 @@ object BuildServer {
   )
 }
 
-object SimpleScalaServer extends LangoustineApp {
+object SimpleScalaServer extends IOApp.Simple {
+  import jsonrpclib.smithy4sinterop.ServerEndpoints
 
-  override def server(args: List[String]): Resource[IO, LSPBuilder[IO]] =
-    (for {
-      steward <- ResourceSupervisor[IO]
-      lsp     <- myLSP(steward)
-    } yield lsp).onFinalizeCase(s => IO.consoleForIO.errorln(s"closing with $s"))
+  val cancelEndpoint = CancelTemplate.make[CallId]("$/cancel", identity, identity)
 
-  private def myLSP(steward: ResourceSupervisor[IO]): Resource[IO, LSPBuilder[IO]] =
+  def run: IO[Unit] =
+    runResource.useForever
 
+  private def runResource =
     for {
+      fs2Channel           <- FS2Channel.resource[IO](cancelTemplate = cancelEndpoint.some)
+      client               <- ClientStub(SlsLanguageClient, fs2Channel).liftTo[IO].toResource
+      serverImpl           <- server(client)
+      serverEndpoints      <- ServerEndpoints(serverImpl).liftTo[IO].toResource
+      channelWithEndpoints <- fs2Channel.withEndpoints(serverEndpoints)
+      _ <- fs2.Stream // Refactor to be single threaded
+        .never[IO]
+        .concurrently(
+          // STDIN
+          fs2.io
+            .stdin[IO](512)
+            .through(jsonrpclib.fs2.lsp.decodeMessages)
+            .through(channelWithEndpoints.inputOrBounce)
+        )
+        .concurrently(
+          // STDOUT
+          channelWithEndpoints.output
+            .through(jsonrpclib.fs2.lsp.encodeMessages[IO])
+            .through(fs2.io.stdout[IO])
+        )
+        .compile
+        .drain
+        .background
+    } yield ()
+
+  private def server(lspClient: SlsLanguageClient[IO]): Resource[IO, ServerImpl] =
+    for {
+      steward           <- ResourceSupervisor[IO]
       pcProvider        <- PresentationCompilerProvider.instance.toResource
       textDocumentSync  <- TextDocumentSyncManager.instance.toResource
       bspClientDeferred <- Deferred[IO, BuildServer].toResource
-      bspStateManager   <- BspStateManager.instance(BuildServer.suspend(bspClientDeferred.get)).toResource
-      stateManager      <- StateManager.instance(textDocumentSync, bspStateManager).toResource
+      bspStateManager   <- BspStateManager.instance(lspClient, BuildServer.suspend(bspClientDeferred.get)).toResource
+      stateManager      <- StateManager.instance(lspClient, textDocumentSync, bspStateManager).toResource
       cancelTokens      <- IOCancelTokens.instance
       diagnosticManager <- DiagnosticManager.instance.toResource
-      impl = ServerImpl(stateManager, pcProvider, cancelTokens, diagnosticManager)
-    } yield LSPBuilder
-      .create[IO]
-      .handleRequest(initialize)(impl.handleInitialize(steward, bspClientDeferred))
-      .handleNotification(textDocument.didOpen)(impl.handleDidOpen)
-      .handleNotification(textDocument.didClose)(impl.handleDidClose)
-      .handleNotification(textDocument.didChange)(impl.handleDidChange)
-      .handleNotification(textDocument.didSave)(impl.handleDidSave)
-      .handleNotification(initialized)(impl.handleInitialized)
-      .handleRequest(textDocument.completion)(impl.handleCompletion)
-      .handleRequest(textDocument.hover)(impl.handleHover)
-      .handleRequest(textDocument.signatureHelp)(impl.handleSignatureHelp)
-      .handleRequest(textDocument.definition)(impl.handleDefinition)
-      .handleRequest(textDocument.inlayHint)(impl.handleInlayHints)
-  // .handleRequest(textDocument.inlayHint.resolve)(impl.handleInlayHintsResolve)
+    } yield ServerImpl(stateManager, pcProvider, cancelTokens, diagnosticManager, steward, bspClientDeferred, lspClient)
 }

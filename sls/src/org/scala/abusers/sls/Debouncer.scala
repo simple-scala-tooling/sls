@@ -1,13 +1,12 @@
 package org.scala.abusers.sls
 
-import scala.concurrent.duration.FiniteDuration
-import cats.effect.Temporal
-import cats.effect.Ref
 import cats.effect.kernel.Fiber
-import cats.effect.kernel.Sync
 import cats.effect.IO
+import cats.effect.Ref
+import cats.effect.Temporal
 import cats.syntax.all.*
 
+import scala.concurrent.duration.FiniteDuration
 
 class Debouncer(delay: FiniteDuration) {
 
@@ -20,7 +19,7 @@ class Debouncer(delay: FiniteDuration) {
       fiber <- Temporal[IO].start(
         IO.sleep(delay) *> run
       )
-      _        <- ref.set(Some(fiber))
+      _ <- ref.set(Some(fiber))
     } yield ()
 
 }

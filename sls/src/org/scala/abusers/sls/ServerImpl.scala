@@ -6,21 +6,18 @@ import cats.effect.kernel.Resource
 import cats.effect.IO
 import cats.syntax.all.*
 import fs2.io.file.Files
-import fs2.io.file.Path
 import fs2.io.process.ProcessBuilder
 import fs2.text
-import ScalaBuildTargetInformation.*
+import io.scalaland.chimney.dsl._
+import io.scalaland.chimney.javacollections._
+import io.scalaland.chimney.Transformer
 import jsonrpclib.fs2.FS2Channel
-import langoustine.lsp.*
-import langoustine.lsp.runtime.*
-import langoustine.lsp.structures.*
-import langoustine.lsp.structures as lngst
 import org.eclipse.lsp4j
 import org.scala.abusers.pc.IOCancelTokens
-import LoggingUtils.*
 import org.scala.abusers.pc.PresentationCompilerDTOInterop.*
 import org.scala.abusers.pc.PresentationCompilerProvider
-import org.scala.abusers.sls.NioConverter.asNio
+import org.scala.abusers.pc.ScalaVersion
+import smithy4s.schema.Schema
 import util.chaining.*
 
 import java.net.URI
@@ -33,39 +30,102 @@ import scala.meta.pc.InlayHintsParams
 import scala.meta.pc.OffsetParams
 import scala.meta.pc.PresentationCompiler
 import scala.meta.pc.VirtualFileParams
-import org.scala.abusers.pc.ScalaVersion
+
+import LoggingUtils.*
+import ScalaBuildTargetInformation.*
 
 class ServerImpl(
     stateManager: StateManager,
     pcProvider: PresentationCompilerProvider,
     cancelTokens: IOCancelTokens,
     diagnosticManager: DiagnosticManager,
-) {
+    steward: ResourceSupervisor[IO],
+    bspClientDeferred: Deferred[IO, BuildServer],
+    lspClient: SlsLanguageClient[IO]
+) extends SlsLanguageServer[IO] {
+
+  /* There can only be one client for one language-server */
+
+  def initializeOp(params: lsp.InitializeParams): IO[lsp.InitializeOpOutput] = {
+    val rootUri  = params.rootUri.getOrElse(sys.error("what now?"))
+    val rootPath = os.Path(java.net.URI.create(rootUri).getPath())
+    (for {
+      _         <- lspClient.logMessage("Ready to initialise!")
+      _         <- importMillBsp(rootPath, lspClient)
+      bspClient <- connectWithBloop(steward, diagnosticManager)
+      _         <- lspClient.logMessage("Connection with bloop estabilished")
+      response <- bspClient.generic.buildInitialize(
+        InitializeBuildParams(
+          displayName = "bloop",
+          version = "0.0.0",
+          bspVersion = "2.1.0",
+          rootUri = bsp.URI(rootUri),
+          capabilities = bsp.BuildClientCapabilities(languageIds = List(bsp.LanguageId("scala"))),
+        )
+      )
+      _ <- lspClient.logMessage(s"Response from bsp: $response")
+      _ <- bspClient.generic.onBuildInitialized()
+      _ <- bspClientDeferred.complete(bspClient)
+    } yield lsp.InitializeOpOutput(
+      lsp
+        .InitializeResult(
+          capabilities = serverCapabilities,
+          serverInfo = lsp.ServerInfo("Simple (Scala) Language Server").some,
+        )
+        .some
+    )).guaranteeCase(s => lspClient.logMessage(s"closing initalize with $s"))
+  }
+
+  def initialized(params: lsp.InitializedParams): IO[Unit] = stateManager.importBuild
+  def textDocumentCompletionOp(params: lsp.CompletionParams): IO[lsp.TextDocumentCompletionOpOutput] = handleCompletion(
+    params
+  )
+  def textDocumentDefinitionOp(params: lsp.DefinitionParams): IO[lsp.TextDocumentDefinitionOpOutput] = handleDefinition(
+    params
+  )
+  def textDocumentDidChange(params: lsp.DidChangeTextDocumentParams): IO[Unit]        = handleDidChange(params)
+  def textDocumentDidClose(params: lsp.DidCloseTextDocumentParams): IO[Unit]          = handleDidClose(params)
+  def textDocumentDidOpen(params: lsp.DidOpenTextDocumentParams): IO[Unit]            = handleDidOpen(params)
+  def textDocumentDidSave(params: lsp.DidSaveTextDocumentParams): IO[Unit]            = handleDidSave(params)
+  def textDocumentHoverOp(params: lsp.HoverParams): IO[lsp.TextDocumentHoverOpOutput] = handleHover(params)
+  def textDocumentInlayHintOp(params: lsp.InlayHintParams): IO[lsp.TextDocumentInlayHintOpOutput] = handleInlayHints(
+    params
+  )
+  def textDocumentSignatureHelpOp(params: lsp.SignatureHelpParams): IO[lsp.TextDocumentSignatureHelpOpOutput] =
+    handleSignatureHelp(params)
 
   // // TODO: goto type definition with container types
-  def handleCompletion(in: Invocation[CompletionParams, IO]) =
-    offsetParamsRequest(in)(_.complete).map { result =>
-      Opt(convert[lsp4j.CompletionList, lngst.CompletionList](result))
+  def handleCompletion(params: lsp.CompletionParams) =
+    offsetParamsRequest(params)(_.complete).map { result =>
+      lsp.TextDocumentCompletionOpOutput(
+        convert[lsp4j.CompletionList, lsp.ListCompletionUnion](result).some
+      )
     }
 
-  def handleHover(in: Invocation[HoverParams, IO]) =
-    offsetParamsRequest(in)(_.hover).map { result =>
-      Opt.fromOption(result.toScala.map(hoverSig => convert[lsp4j.Hover, lngst.Hover](hoverSig.toLsp())))
+  def handleHover(params: lsp.HoverParams) =
+    offsetParamsRequest(params)(_.hover).map { result =>
+      lsp.TextDocumentHoverOpOutput(
+        result.toScala.map(hoverSig => convert[lsp4j.Hover, lsp.Hover](hoverSig.toLsp()))
+      )
     }
 
-  def handleSignatureHelp(in: Invocation[SignatureHelpParams, IO]) =
-    offsetParamsRequest(in)(_.signatureHelp).map { result =>
-      Opt(convert[lsp4j.SignatureHelp, lngst.SignatureHelp](result))
+  def handleSignatureHelp(params: lsp.SignatureHelpParams) =
+    offsetParamsRequest(params)(_.signatureHelp).map { result =>
+      lsp.TextDocumentSignatureHelpOpOutput(
+        convert[lsp4j.SignatureHelp, lsp.SignatureHelp](result).some
+      )
     }
 
-  def handleDefinition(in: Invocation[DefinitionParams, IO]) =
-    offsetParamsRequest(in)(_.definition).map { result =>
-      Opt.fromOption(
+  def handleDefinition(params: lsp.DefinitionParams) =
+    offsetParamsRequest(params)(_.definition).map { result =>
+      lsp.TextDocumentDefinitionOpOutput(
         result
           .locations()
           .asScala
           .headOption
-          .map(definition => convert[lsp4j.Location, aliases.Definition](definition))
+          .map(definition =>
+            convert[lsp4j.Location, lsp.DefinitionOrListOfDefinitionLink](definition)
+          ) // FIXME: missing completion on lsp.TextDocumentDefinitionOpOutput
       )
     }
 
@@ -75,8 +135,10 @@ class ServerImpl(
     override def uri(): URI           = uri0
   }
 
-  def handleInlayHints(in: Invocation[InlayHintParams, IO]) = {
-    val uri0 = summon[WithURI[InlayHintParams]].uri(in.params)
+  given Schema[List[lsp.InlayHint]] = Schema.list(lsp.InlayHint.schema)
+
+  def handleInlayHints(params: lsp.InlayHintParams) = {
+    val uri0 = summon[WithURI[lsp.InlayHintParams]].uri(params)
 
     cancelTokens.mkCancelToken.use { token0 =>
       for {
@@ -87,30 +149,31 @@ class ServerImpl(
           def implicitParameters(): Boolean      = true
           def inferredTypes(): Boolean           = true
           def typeParameters(): Boolean          = true
-          def offset(): Int                      = in.params.range.start.toOffset
-          def endOffset(): Int                   = in.params.range.end.toOffset
+          def offset(): Int                      = params.range.start.toOffset
+          def endOffset(): Int                   = params.range.end.toOffset
           def text(): String                     = content
           def token(): scala.meta.pc.CancelToken = token0
           def uri(): java.net.URI                = uri0
         }
 
-        result <- pcParamsRequest(in.params, inalyHintsParams)(_.inlayHints)
-      } yield Opt(convert[java.util.List[lsp4j.InlayHint], Vector[InlayHint]](result))
+        result <- pcParamsRequest(params, inalyHintsParams)(_.inlayHints)
+        converted = convert[java.util.List[lsp4j.InlayHint], List[lsp.InlayHint]](result)
+      } yield lsp.TextDocumentInlayHintOpOutput(converted.some)
     }
   }
 
   // def handleInlayHintsRefresh(in: Invocation[Unit, IO]) = IO.pure(null)
 
-  private def offsetParamsRequest[Params: PositionWithURI, Result](in: Invocation[Params, IO])(
+  private def offsetParamsRequest[Params: PositionWithURI, Result](params: Params)(
       thunk: PresentationCompiler => OffsetParams => CompletableFuture[Result]
   ): IO[Result] = { // TODO Completion on context bound inserts []
-    val uri      = summon[WithURI[Params]].uri(in.params)
-    val position = summon[WithPosition[Params]].position(in.params)
+    val uri      = summon[WithURI[Params]].uri(params)
+    val position = summon[WithPosition[Params]].position(params)
     cancelTokens.mkCancelToken.use { token =>
       for {
         docState <- stateManager.getDocumentState(uri)
         offsetParams = toOffsetParams(position, docState, token)
-        result <- pcParamsRequest(in.params, offsetParams)(thunk)
+        result <- pcParamsRequest(params, offsetParams)(thunk)
       } yield result
     }
   }
@@ -126,13 +189,19 @@ class ServerImpl(
     } yield result
   }
 
-  def handleDidSave(in: Invocation[DidSaveTextDocumentParams, IO]) = stateManager.didSave(in)
+  def handleDidSave(params: lsp.DidSaveTextDocumentParams) = stateManager.didSave(params)
 
-  def handleDidOpen(in: Invocation[DidOpenTextDocumentParams, IO]) = stateManager.didOpen(in)
+  def handleDidOpen(params: lsp.DidOpenTextDocumentParams) = stateManager.didOpen(params)
 
-  def handleDidClose(in: Invocation[DidCloseTextDocumentParams, IO]) = stateManager.didClose(in)
+  def handleDidClose(params: lsp.DidCloseTextDocumentParams) = stateManager.didClose(params)
 
-  val handleDidChange: Invocation[DidChangeTextDocumentParams, IO] => IO[Unit] = {
+  implicit val positionTransformer: Transformer[lsp4j.Position, lsp.Position] =
+    Transformer.define[lsp4j.Position, lsp.Position].enableBeanGetters.buildTransformer
+
+  implicit val rangeTransformer: Transformer[lsp4j.Range, lsp.Range] =
+    Transformer.define[lsp4j.Range, lsp.Range].enableBeanGetters.buildTransformer
+
+  val handleDidChange: lsp.DidChangeTextDocumentParams => IO[Unit] = {
     val debounce = Debouncer(300.millis)
 
     def isSupported(info: ScalaBuildTargetInformation): Boolean = {
@@ -140,103 +209,81 @@ class ServerImpl(
       info.scalaVersion > ScalaVersion("3.7.2")
     }
 
-    /**
-     * We want to debounce compiler diagnostics as they are expensive to compute and we can't really cancel them
-     * as they are triggered by notification and AFAIK, LSP cancellation only works for requests.
-     */
-    def pcDiagnostics(in: Invocation[DidChangeTextDocumentParams, IO], info: ScalaBuildTargetInformation, uri: URI): IO[Unit] =
+    /** We want to debounce compiler diagnostics as they are expensive to compute and we can't really cancel them as
+      * they are triggered by notification and AFAIK, LSP cancellation only works for requests.
+      */
+    def pcDiagnostics(info: ScalaBuildTargetInformation, uri: URI): IO[Unit] =
       cancelTokens.mkCancelToken.use { token =>
         for {
-          _ <- in.toClient.logDebug("Getting PresentationCompiler diagnostics")
+          _            <- lspClient.logDebug("Getting PresentationCompiler diagnostics")
           textDocument <- stateManager.getDocumentState(uri)
           pc           <- pcProvider.get(info)
           params = virtualFileParams(uri, textDocument.content, token)
           diags <- IO.fromCompletableFuture(IO(pc.didChange(params)))
-          langoustineDiags = convert[java.util.List[lsp4j.Diagnostic], Vector[lngst.Diagnostic]](diags)
-          _ <- diagnosticManager.didChange(in, langoustineDiags)
+          lspDiags = diags
+            .into[List[lsp.Diagnostic]]
+            .withFieldRenamed(_.everyItem.getRange, _.everyItem.range)
+            .withFieldRenamed(_.everyItem.getMessage, _.everyItem.message)
+            .enableOptionDefaultsToNone
+            .transform
+          _       <- diagnosticManager.didChange(lspClient, uri.toString, lspDiags)
         } yield ()
-    }
+      }
 
-    in => for {
-      _ <- stateManager.didChange(in)
-      _ <- in.toClient.logDebug("Updated DocumentState")
-      uri = in.params.textDocument.uri.asNio
-      info         <- stateManager.getBuildTargetInformation(uri)
-      _ <- if isSupported(info) then debounce.debounce(pcDiagnostics(in, info, uri)) else IO.unit
-    } yield ()
+    params =>
+      for {
+        _       <- stateManager.didChange(params)
+        _       <- lspClient.logDebug("Updated DocumentState")
+        uri = URI(params.textDocument.uri)
+        info <- stateManager.getBuildTargetInformation(uri)
+        _    <- if isSupported(info) then debounce.debounce(pcDiagnostics(info, uri)) else IO.unit
+      } yield ()
   }
 
-  def handleInitialized(in: Invocation[InitializedParams, IO]): IO[Unit] = stateManager.importBuild(in.toClient)
-
-  def handleInitialize(
-      steward: ResourceSupervisor[IO],
-      bspClientDeferred: Deferred[IO, BuildServer],
-  )(
-      in: Invocation[InitializeParams, IO]
-  ) = {
-    val rootUri  = in.params.rootUri.toOption.getOrElse(sys.error("what now?"))
-    val rootPath = os.Path(java.net.URI.create(rootUri.value).getPath())
-    (for {
-      _         <- in.toClient.sendMessage("Ready to initialise!")
-      _         <- importMillBsp(rootPath, in.toClient)
-      bspClient <- connectWithBloop(in.toClient, steward, diagnosticManager)
-      _         <- in.toClient.logMessage("Connection with bloop estabilished")
-      response <- bspClient.generic.buildInitialize(
-        InitializeBuildParams(
-          displayName = "bloop",
-          version = "0.0.0",
-          bspVersion = "2.1.0",
-          rootUri = bsp.URI(rootUri.value),
-          capabilities = bsp.BuildClientCapabilities(languageIds = List(bsp.LanguageId("scala"))),
-        )
-      )
-      _ <- in.toClient.logMessage(s"Response from bsp: $response")
-      _ <- bspClient.generic.onBuildInitialized()
-      _ <- bspClientDeferred.complete(bspClient)
-    } yield InitializeResult(
-      capabilities = serverCapabilities,
-      serverInfo = Opt(InitializeResult.ServerInfo("My first LSP!")),
-    )).guaranteeCase(s => in.toClient.logMessage(s"closing initalize with $s"))
-  }
-
-  private def serverCapabilities: ServerCapabilities =
-    ServerCapabilities(
-      textDocumentSync = Opt(enumerations.TextDocumentSyncKind.Incremental),
-      completionProvider = Opt(CompletionOptions(triggerCharacters = Opt(Vector(".")))),
-      hoverProvider = Opt(HoverOptions()),
-      signatureHelpProvider = Opt(SignatureHelpOptions(Opt(Vector("(", "[", "{")), Opt(Vector(",")))),
-      definitionProvider = Opt(DefinitionOptions()),
-      inlayHintProvider = Opt(InlayHintOptions(resolveProvider = Opt(false))),
+  private def serverCapabilities: lsp.ServerCapabilities =
+    lsp.ServerCapabilities(
+      textDocumentSync = lsp.TextDocumentSyncUnion.case1(lsp.TextDocumentSyncKind.INCREMENTAL).some,
+      completionProvider = lsp.CompletionOptions(triggerCharacters = List(".").some).some,
+      hoverProvider = lsp.BooleanOrHoverOptions.case1(lsp.HoverOptions()).some,
+      signatureHelpProvider = lsp
+        .SignatureHelpOptions(None, List("(", "[", "{").some, List(",").some)
+        .some, // FIXME signature help on List triggers cats effect because of extension methods
+      definitionProvider = lsp.BooleanOrDefinitionOptions.case1(lsp.DefinitionOptions(None)).some,
+      inlayHintProvider = lsp.BooleanOrInlayHintOptions.case1(lsp.InlayHintOptions(resolveProvider = false.some)).some,
     )
 
-  private def connectWithBloop(back: Communicate[IO], steward: ResourceSupervisor[IO], diagnosticManager: DiagnosticManager): IO[BuildServer] = {
-    def bspProcess(socketFile: os.Path) = ProcessBuilder("bloop", "bsp", "--socket", socketFile.toNIO.toString())
-      .spawn[IO]
-      .flatMap { bspSocketProc =>
-        IO.deferred[Unit].toResource.flatMap { started =>
-          val waitForStart: fs2.Pipe[IO, Byte, Nothing] =
-            _.through(fs2.text.utf8.decode)
-              .through(fs2.text.lines)
-              .find(_.contains("The server is listening for incoming connections"))
-              .foreach(_ => started.complete(()).void)
+  private def connectWithBloop(
+      steward: ResourceSupervisor[IO],
+      diagnosticManager: DiagnosticManager,
+  ): IO[BuildServer] = {
+    def bspProcess(socketFile: os.Path) =
+      ProcessBuilder("bloop", "bsp", "--socket", socketFile.toNIO.toString())
+        .spawn[IO]
+        .flatMap { bspSocketProc =>
+          IO.deferred[Unit].toResource.flatMap { started =>
+            val waitForStart: fs2.Pipe[IO, Byte, Nothing] =
+              _.through(fs2.text.utf8.decode)
+                .through(fs2.text.lines)
+                .find(_.contains("The server is listening for incoming connections"))
+                .foreach(_ => started.complete(()).void)
+                .drain
+
+            bspSocketProc.stdout
+              .observe(waitForStart)
+              .merge(bspSocketProc.stderr)
+              .through(text.utf8.decode)
+              .through(text.lines)
+              .evalMap(s => lspClient.logMessage(s"[bloop] $s"))
+              .onFinalizeCase(c => lspClient.sendMessage(s"Bloop process terminated $c"))
+              .compile
               .drain
+              .background
+            // wait for the started message before proceeding
+              <* started.get.toResource
+          }
 
-          bspSocketProc.stdout
-            .observe(waitForStart)
-            .merge(bspSocketProc.stderr)
-            .through(text.utf8.decode)
-            .through(text.lines)
-            .evalMap(s => back.logMessage(s"[bloop] $s"))
-            .onFinalizeCase(c => back.sendMessage(s"Bloop process terminated $c"))
-            .compile
-            .drain
-            .background
-          // wait for the started message before proceeding
-            <* started.get.toResource
         }
-
-      }
-      .as(socketFile)
+        .as(socketFile)
 
     val bspClientRes = for {
       temp <- Files[IO]
@@ -248,17 +295,17 @@ class ServerImpl(
         .map(_.toNioPath.pipe(os.Path(_))) // TODO Investigate possible clashes during reconnection
       socketFile = temp / "bloop.socket"
       socketPath <- bspProcess(socketFile)
-      _          <- Resource.eval(IO.sleep(1.seconds) *> back.logMessage(s"Looking for socket at $socketPath"))
+      _          <- Resource.eval(IO.sleep(1.seconds) *> lspClient.logMessage(s"Looking for socket at $socketPath"))
       channel <- FS2Channel
         .resource[IO]()
-        .flatMap(_.withEndpoints(bspClientHandler(back, diagnosticManager)))
-      client <- makeBspClient(socketPath.toString, channel, msg => back.logDebug(s"reporting raw: $msg"))
+        .flatMap(_.withEndpoints(bspClientHandler(lspClient, diagnosticManager)))
+      client <- makeBspClient(socketPath.toString, channel, msg => lspClient.logDebug(s"reporting raw: $msg"))
     } yield client
 
     steward.acquire(bspClientRes)
   }
 
-  def importMillBsp(rootPath: os.Path, back: Communicate[IO]) = {
+  def importMillBsp(rootPath: os.Path, client: SlsLanguageClient[IO]) = {
     val millExec = "./mill" // TODO if mising then findMillExec()
     ProcessBuilder(millExec, "--import", "ivy:com.lihaoyi::mill-contrib-bloop:", "mill.contrib.bloop.Bloop/install")
       .withWorkingDirectory(fs2.io.file.Path.fromNioPath(rootPath.toNIO))
@@ -273,7 +320,7 @@ class ServerImpl(
           .through(text.lines)
 
         allOutput
-          .evalMap(back.logMessage)
+          .evalMap(client.logMessage)
           .compile
           .drain
       }

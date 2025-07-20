@@ -4,8 +4,7 @@ import bsp.BuildTargetIdentifier
 import cats.effect.IO
 import com.evolution.scache.Cache as SCache
 import com.evolution.scache.ExpiringCache
-import coursier.*
-import coursier.cache.*
+import coursierapi.*
 import org.scala.abusers.sls.ScalaBuildTargetInformation
 import org.scala.abusers.sls.ScalaBuildTargetInformation.*
 import os.Path
@@ -19,20 +18,24 @@ class PresentationCompilerProvider(
     serviceLoader: BlockingServiceLoader,
     compilers: SCache[IO, BuildTargetIdentifier, PresentationCompiler],
 ) {
-  import CoursiercatsInterop.*
-  private val cache = FileCache[IO] // .withLogger TODO No completions here
+  private val cache = Cache.create() // .withLogger TODO No completions here
 
-  private def fetchPresentationCompilerJars(scalaVersion: ScalaVersion): IO[Seq[os.Path]] = {
-    val dep = Dependency(
-      Module(Organization("org.scala-lang"), ModuleName("scala3-presentation-compiler_3")),
+  private def fetchPresentationCompilerJars(scalaVersion: ScalaVersion): IO[Seq[os.Path]] = IO.blocking {
+    val dep = Dependency.of(
+      Module.of("org.scala-lang", "scala3-presentation-compiler_3"),
       scalaVersion.value,
     )
 
-    Fetch(cache)
+    Fetch
+      .create()
+      .withCache(cache)
       .addDependencies(dep)
       .addRepositories( /* load from user config */ )
-      .io
-      .map(_.map(os.Path(_)))
+      .fetch()
+      .asScala
+      .map(os.Path.apply)
+      .toList
+
   }
 
   private def freshPresentationCompilerClassloader(
