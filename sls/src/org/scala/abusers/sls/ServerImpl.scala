@@ -41,7 +41,7 @@ class ServerImpl(
     diagnosticManager: DiagnosticManager,
     steward: ResourceSupervisor[IO],
     bspClientDeferred: Deferred[IO, BuildServer],
-    lspClient: SlsLanguageClient[IO]
+    lspClient: SlsLanguageClient[IO],
 ) extends SlsLanguageServer[IO] {
 
   /* There can only be one client for one language-server */
@@ -70,7 +70,7 @@ class ServerImpl(
       lsp
         .InitializeResult(
           capabilities = serverCapabilities,
-          serverInfo = lsp.ServerInfo("Simple (Scala) Language Server").some,
+          serverInfo = lsp.ServerInfo("Simple (Scala) Language Server", Some("0.0.1")).some,
         )
         .some
     )).guaranteeCase(s => lspClient.logMessage(s"closing initalize with $s"))
@@ -226,14 +226,14 @@ class ServerImpl(
             .withFieldRenamed(_.everyItem.getMessage, _.everyItem.message)
             .enableOptionDefaultsToNone
             .transform
-          _       <- diagnosticManager.didChange(lspClient, uri.toString, lspDiags)
+          _ <- diagnosticManager.didChange(lspClient, uri.toString, lspDiags)
         } yield ()
       }
 
     params =>
       for {
-        _       <- stateManager.didChange(params)
-        _       <- lspClient.logDebug("Updated DocumentState")
+        _ <- stateManager.didChange(params)
+        _ <- lspClient.logDebug("Updated DocumentState")
         uri = URI(params.textDocument.uri)
         info <- stateManager.getBuildTargetInformation(uri)
         _    <- if isSupported(info) then debounce.debounce(pcDiagnostics(info, uri)) else IO.unit
@@ -305,24 +305,68 @@ class ServerImpl(
     steward.acquire(bspClientRes)
   }
 
-  def importMillBsp(rootPath: os.Path, client: SlsLanguageClient[IO]) = {
-    val millExec = "./mill" // TODO if mising then findMillExec()
-    ProcessBuilder(millExec, "--import", "ivy:com.lihaoyi::mill-contrib-bloop:", "mill.contrib.bloop.Bloop/install")
-      .withWorkingDirectory(fs2.io.file.Path.fromNioPath(rootPath.toNIO))
-      .spawn[IO]
-      .use { process =>
-        val logStdout = process.stdout
-        val logStderr = process.stderr
-
-        val allOutput = logStdout
-          .merge(logStderr)
-          .through(text.utf8.decode)
-          .through(text.lines)
-
-        allOutput
-          .evalMap(client.logMessage)
-          .compile
-          .drain
+  private def findMillExec(rootPath: os.Path): IO[String] = {
+    def searchForMill(current: fs2.io.file.Path): IO[fs2.io.file.Path] = {
+      val millFile = current / "mill"
+      Files[IO].exists(millFile).flatMap { exists =>
+        if (exists) {
+          // Verify it's a regular file (not directory) and executable
+          Files[IO].isRegularFile(millFile).flatMap { isFile =>
+            if (isFile) {
+              Files[IO].getPosixPermissions(millFile).flatMap { perms =>
+                if (perms.toString.contains("x")) IO.pure(millFile)
+                else {
+                  val parent = current.parent
+                  if (parent.isEmpty)
+                    IO.raiseError(
+                      new RuntimeException(s"Could not find executable mill in any parent directory of ${current}")
+                    )
+                  else
+                    searchForMill(parent.get)
+                }
+              }
+            } else {
+              val parent = current.parent
+              if (parent.isEmpty)
+                IO.raiseError(
+                  new RuntimeException(s"Could not find executable mill in any parent directory of ${current}")
+                )
+              else
+                searchForMill(parent.get)
+            }
+          }
+        } else {
+          val parent = current.parent
+          if (parent.isEmpty)
+            IO.raiseError(new RuntimeException(s"Could not find mill executable in any parent directory of ${current}"))
+          else
+            searchForMill(parent.get)
+        }
       }
+    }
+
+    // Start search from current working directory instead of rootPath (which is temp dir)
+    Files[IO].currentWorkingDirectory.flatMap(searchForMill).map(_.toString)
   }
+
+  def importMillBsp(rootPath: os.Path, client: SlsLanguageClient[IO]) =
+    findMillExec(rootPath).flatMap { millExec =>
+      ProcessBuilder(millExec, "--import", "ivy:com.lihaoyi::mill-contrib-bloop:", "mill.contrib.bloop.Bloop/install")
+        .withWorkingDirectory(fs2.io.file.Path.fromNioPath(rootPath.toNIO))
+        .spawn[IO]
+        .use { process =>
+          val logStdout = process.stdout
+          val logStderr = process.stderr
+
+          val allOutput = logStdout
+            .merge(logStderr)
+            .through(text.utf8.decode)
+            .through(text.lines)
+
+          allOutput
+            .evalMap(client.logMessage)
+            .compile
+            .drain
+        }
+    }
 }
