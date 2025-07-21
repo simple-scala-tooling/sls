@@ -12,12 +12,12 @@ object RealWorldScenarioTests extends LSPIntegrationTestSuite {
   test("handles cross-file navigation in multi-module project") { _ =>
     withMultiModuleServer.use { ctx =>
       for {
-        _              <- initializeServer(ctx.server, ctx.workspace)
-        _              <- ctx.server.initialized(InitializedParams())
-        appUri         = ctx.workspace.getSourceFileUri("app/Main.scala").get
-        coreUri        = ctx.workspace.getSourceFileUri("core/Domain.scala").get
-        appContent     <- readFileContent(ctx.workspace.getSourceFile("app/Main.scala").get)
-        coreContent    <- readFileContent(ctx.workspace.getSourceFile("core/Domain.scala").get)
+        _ <- initializeServer(ctx.server, ctx.workspace)
+        _ <- ctx.server.initialized(InitializedParams())
+        appUri  = ctx.workspace.getSourceFileUri("app/Main.scala").get
+        coreUri = ctx.workspace.getSourceFileUri("core/Domain.scala").get
+        appContent  <- readFileContent(ctx.workspace.getSourceFile("app/Main.scala").get)
+        coreContent <- readFileContent(ctx.workspace.getSourceFile("core/Domain.scala").get)
 
         // Open both files
         _ <- openDocument(ctx.server, appUri, appContent)
@@ -27,10 +27,12 @@ object RealWorldScenarioTests extends LSPIntegrationTestSuite {
         completionParams = CompletionParams(
           textDocument = TextDocumentIdentifier(uri = appUri),
           position = Position(line = 5, character = 25), // After "UserService."
-          context = Some(CompletionContext(
-            triggerKind = CompletionTriggerKind.TRIGGER_CHARACTER,
-            triggerCharacter = Some(".")
-          ))
+          context = Some(
+            CompletionContext(
+              triggerKind = CompletionTriggerKind.TRIGGER_CHARACTER,
+              triggerCharacter = Some("."),
+            )
+          ),
         )
 
         completionResponse <- ctx.server.textDocumentCompletionOp(completionParams)
@@ -38,7 +40,7 @@ object RealWorldScenarioTests extends LSPIntegrationTestSuite {
         // Test go-to-definition from app to core module
         definitionParams = DefinitionParams(
           textDocument = TextDocumentIdentifier(uri = appUri),
-          position = Position(line = 5, character = 20) // On "UserService"
+          position = Position(line = 5, character = 20), // On "UserService"
         )
 
         definitionResponse <- ctx.server.textDocumentDefinitionOp(definitionParams)
@@ -55,11 +57,11 @@ object RealWorldScenarioTests extends LSPIntegrationTestSuite {
   test("handles multiple concurrent LSP requests") { _ =>
     withSimpleServer.use { ctx =>
       for {
-        _           <- initializeServer(ctx.server, ctx.workspace)
-        _           <- ctx.server.initialized(InitializedParams())
-        mainUri     = ctx.workspace.getSourceFileUri("Main.scala").get
-        utilsUri    = ctx.workspace.getSourceFileUri("Utils.scala").get
-        mainContent <- readFileContent(ctx.workspace.getSourceFile("Main.scala").get)
+        _ <- initializeServer(ctx.server, ctx.workspace)
+        _ <- ctx.server.initialized(InitializedParams())
+        mainUri  = ctx.workspace.getSourceFileUri("Main.scala").get
+        utilsUri = ctx.workspace.getSourceFileUri("Utils.scala").get
+        mainContent  <- readFileContent(ctx.workspace.getSourceFile("Main.scala").get)
         utilsContent <- readFileContent(ctx.workspace.getSourceFile("Utils.scala").get)
 
         // Open both documents
@@ -67,54 +69,68 @@ object RealWorldScenarioTests extends LSPIntegrationTestSuite {
         _ <- openDocument(ctx.server, utilsUri, utilsContent)
 
         // Make multiple concurrent requests
-        hoverMain = ctx.server.textDocumentHoverOp(HoverParams(
-          textDocument = TextDocumentIdentifier(uri = mainUri),
-          position = Position(line = 2, character = 12) // On "println"
-        ))
+        hoverMain = ctx.server.textDocumentHoverOp(
+          HoverParams(
+            textDocument = TextDocumentIdentifier(uri = mainUri),
+            position = Position(line = 2, character = 12), // On "println"
+          )
+        )
 
-        hoverUtils = ctx.server.textDocumentHoverOp(HoverParams(
-          textDocument = TextDocumentIdentifier(uri = utilsUri),
-          position = Position(line = 1, character = 6) // On "greet"
-        ))
+        hoverUtils = ctx.server.textDocumentHoverOp(
+          HoverParams(
+            textDocument = TextDocumentIdentifier(uri = utilsUri),
+            position = Position(line = 1, character = 6), // On "greet"
+          )
+        )
 
-        completionMain = ctx.server.textDocumentCompletionOp(CompletionParams(
-          textDocument = TextDocumentIdentifier(uri = mainUri),
-          position = Position(line = 3, character = 10), // After "utils."
-          context = Some(CompletionContext(
-            triggerKind = CompletionTriggerKind.TRIGGER_CHARACTER,
-            triggerCharacter = Some(".")
-          ))
-        ))
+        completionMain = ctx.server.textDocumentCompletionOp(
+          CompletionParams(
+            textDocument = TextDocumentIdentifier(uri = mainUri),
+            position = Position(line = 3, character = 10), // After "utils."
+            context = Some(
+              CompletionContext(
+                triggerKind = CompletionTriggerKind.TRIGGER_CHARACTER,
+                triggerCharacter = Some("."),
+              )
+            ),
+          )
+        )
 
-        signatureUtils = ctx.server.textDocumentSignatureHelpOp(SignatureHelpParams(
-          textDocument = TextDocumentIdentifier(uri = utilsUri),
-          position = Position(line = 5, character = 25), // In add method signature
-          context = Some(SignatureHelpContext(
-            triggerKind = SignatureHelpTriggerKind.INVOKED,
-            triggerCharacter = None,
-            isRetrigger = false,
-            activeSignatureHelp = None
-          ))
-        ))
+        signatureUtils = ctx.server.textDocumentSignatureHelpOp(
+          SignatureHelpParams(
+            textDocument = TextDocumentIdentifier(uri = utilsUri),
+            position = Position(line = 5, character = 25), // In add method signature
+            context = Some(
+              SignatureHelpContext(
+                triggerKind = SignatureHelpTriggerKind.INVOKED,
+                triggerCharacter = None,
+                isRetrigger = false,
+                activeSignatureHelp = None,
+              )
+            ),
+          )
+        )
 
         // Execute all requests concurrently
         (hoverMainRes, hoverUtilsRes, completionRes, signatureRes) <- (
-          hoverMain, hoverUtils, completionMain, signatureUtils
+          hoverMain,
+          hoverUtils,
+          completionMain,
+          signatureUtils,
         ).parTupled
 
-      } yield {
+      } yield
         // All requests should complete successfully
         success
-      }
     }
   }
 
   test("handles rapid document changes without errors") { _ =>
     withSimpleServer.use { ctx =>
       for {
-        _           <- initializeServer(ctx.server, ctx.workspace)
-        _           <- ctx.server.initialized(InitializedParams())
-        fileUri     = ctx.workspace.getSourceFileUri("Utils.scala").get
+        _ <- initializeServer(ctx.server, ctx.workspace)
+        _ <- ctx.server.initialized(InitializedParams())
+        fileUri = ctx.workspace.getSourceFileUri("Utils.scala").get
         fileContent <- readFileContent(ctx.workspace.getSourceFile("Utils.scala").get)
         _           <- openDocument(ctx.server, fileUri, fileContent)
 
@@ -124,11 +140,13 @@ object RealWorldScenarioTests extends LSPIntegrationTestSuite {
             textDocument = VersionedTextDocumentIdentifier(uri = fileUri, version = i + 1),
             contentChanges = List(
               makeTextChange(
-                startLine = 8, startChar = 1,
-                endLine = 8, endChar = 1,
-                text = s"\n  // Rapid change $i"
+                startLine = 8,
+                startChar = 1,
+                endLine = 8,
+                endChar = 1,
+                text = s"\n  // Rapid change $i",
               )
-            )
+            ),
           )
         }
 
@@ -140,7 +158,7 @@ object RealWorldScenarioTests extends LSPIntegrationTestSuite {
         // Server should still be responsive
         hoverParams = HoverParams(
           textDocument = TextDocumentIdentifier(uri = fileUri),
-          position = Position(line = 1, character = 6)
+          position = Position(line = 1, character = 6),
         )
 
         _ <- ctx.server.textDocumentHoverOp(hoverParams)
@@ -151,9 +169,9 @@ object RealWorldScenarioTests extends LSPIntegrationTestSuite {
   test("handles large file operations") { _ =>
     withSimpleServer.use { ctx =>
       for {
-        _           <- initializeServer(ctx.server, ctx.workspace)
-        _           <- ctx.server.initialized(InitializedParams())
-        fileUri     = ctx.workspace.getSourceFileUri("Utils.scala").get
+        _ <- initializeServer(ctx.server, ctx.workspace)
+        _ <- ctx.server.initialized(InitializedParams())
+        fileUri = ctx.workspace.getSourceFileUri("Utils.scala").get
 
         // Create a large file content
         largeContent = {
@@ -166,10 +184,12 @@ object RealWorldScenarioTests extends LSPIntegrationTestSuite {
                             |
                             |  def multiply(x: Double, y: Double): Double = x * y
                             |""".stripMargin
-          val manyMethods = (1 to 100).map { i =>
-            s"""  def method$i(param: Int): Int = param * $i
-               |""".stripMargin
-          }.mkString("\n")
+          val manyMethods = (1 to 100)
+            .map { i =>
+              s"""  def method$i(param: Int): Int = param * $i
+                 |""".stripMargin
+            }
+            .mkString("\n")
 
           baseClass + manyMethods + "\n}"
         }
@@ -180,10 +200,12 @@ object RealWorldScenarioTests extends LSPIntegrationTestSuite {
         completionParams = CompletionParams(
           textDocument = TextDocumentIdentifier(uri = fileUri),
           position = Position(line = 50, character = 0), // Middle of file
-          context = Some(CompletionContext(
-            triggerKind = CompletionTriggerKind.INVOKED,
-            triggerCharacter = None
-          ))
+          context = Some(
+            CompletionContext(
+              triggerKind = CompletionTriggerKind.INVOKED,
+              triggerCharacter = None,
+            )
+          ),
         )
 
         _ <- ctx.server.textDocumentCompletionOp(completionParams)
@@ -191,7 +213,7 @@ object RealWorldScenarioTests extends LSPIntegrationTestSuite {
         // Test hover in large file
         hoverParams = HoverParams(
           textDocument = TextDocumentIdentifier(uri = fileUri),
-          position = Position(line = 80, character = 6) // Near end of file
+          position = Position(line = 80, character = 6), // Near end of file
         )
 
         _ <- ctx.server.textDocumentHoverOp(hoverParams)
@@ -202,13 +224,13 @@ object RealWorldScenarioTests extends LSPIntegrationTestSuite {
   test("handles workspace with many files") { _ =>
     withMultiModuleServer.use { ctx =>
       for {
-        _              <- initializeServer(ctx.server, ctx.workspace)
-        _              <- ctx.server.initialized(InitializedParams())
+        _ <- initializeServer(ctx.server, ctx.workspace)
+        _ <- ctx.server.initialized(InitializedParams())
 
         // Create multiple file URIs (simulating a workspace with many files)
         files = List(
           "core/Domain.scala",
-          "app/Main.scala"
+          "app/Main.scala",
         ).map(ctx.workspace.getSourceFileUri(_).get)
 
         // Open multiple files
@@ -227,10 +249,12 @@ object RealWorldScenarioTests extends LSPIntegrationTestSuite {
 
         // Test that server can handle requests across all files
         requests = files.map { fileUri =>
-          ctx.server.textDocumentHoverOp(HoverParams(
-            textDocument = TextDocumentIdentifier(uri = fileUri),
-            position = Position(line = 2, character = 7) // On "object"
-          ))
+          ctx.server.textDocumentHoverOp(
+            HoverParams(
+              textDocument = TextDocumentIdentifier(uri = fileUri),
+              position = Position(line = 2, character = 7), // On "object"
+            )
+          )
         }
 
         _ <- requests.parSequence
@@ -241,10 +265,10 @@ object RealWorldScenarioTests extends LSPIntegrationTestSuite {
   test("handles diagnostic publishing with debouncing") { _ =>
     withSimpleServer.use { ctx =>
       for {
-        _           <- initializeServer(ctx.server, ctx.workspace)
-        _           <- ctx.server.initialized(InitializedParams())
-        _           <- ctx.client.clearAll
-        fileUri     = ctx.workspace.getSourceFileUri("Main.scala").get
+        _ <- initializeServer(ctx.server, ctx.workspace)
+        _ <- ctx.server.initialized(InitializedParams())
+        _ <- ctx.client.clearAll
+        fileUri = ctx.workspace.getSourceFileUri("Main.scala").get
 
         // Open file with syntax error
         invalidContent = """object Main {
@@ -261,14 +285,14 @@ object RealWorldScenarioTests extends LSPIntegrationTestSuite {
           textDocument = VersionedTextDocumentIdentifier(uri = fileUri, version = 2),
           contentChanges = List(
             makeTextChange(2, 18, 2, 18, "42")
-          )
+          ),
         )
 
         fix2 = DidChangeTextDocumentParams(
           textDocument = VersionedTextDocumentIdentifier(uri = fileUri, version = 3),
           contentChanges = List(
             makeTextChange(2, 18, 2, 20, "\"hello\"")
-          )
+          ),
         )
 
         _ <- ctx.server.textDocumentDidChange(fix1)
@@ -279,32 +303,35 @@ object RealWorldScenarioTests extends LSPIntegrationTestSuite {
         _ <- IO.sleep(1.second)
 
         diagnostics <- ctx.client.getPublishedDiagnostics
-      } yield {
+      } yield
         // Should have received diagnostics, but debouncing should prevent excessive publications
         expect(diagnostics.nonEmpty)
-      }
     }
   }
 
   test("performance: handles 50 rapid completion requests") { _ =>
     withSimpleServer.use { ctx =>
       for {
-        _           <- initializeServer(ctx.server, ctx.workspace)
-        _           <- ctx.server.initialized(InitializedParams())
-        fileUri     = ctx.workspace.getSourceFileUri("Utils.scala").get
+        _ <- initializeServer(ctx.server, ctx.workspace)
+        _ <- ctx.server.initialized(InitializedParams())
+        fileUri = ctx.workspace.getSourceFileUri("Utils.scala").get
         fileContent <- readFileContent(ctx.workspace.getSourceFile("Utils.scala").get)
         _           <- openDocument(ctx.server, fileUri, fileContent)
 
         // Create many completion requests
         completionRequests = (1 to 50).map { _ =>
-          ctx.server.textDocumentCompletionOp(CompletionParams(
-            textDocument = TextDocumentIdentifier(uri = fileUri),
-            position = Position(line = 1, character = 8),
-            context = Some(CompletionContext(
-              triggerKind = CompletionTriggerKind.INVOKED,
-              triggerCharacter = None
-            ))
-          ))
+          ctx.server.textDocumentCompletionOp(
+            CompletionParams(
+              textDocument = TextDocumentIdentifier(uri = fileUri),
+              position = Position(line = 1, character = 8),
+              context = Some(
+                CompletionContext(
+                  triggerKind = CompletionTriggerKind.INVOKED,
+                  triggerCharacter = None,
+                )
+              ),
+            )
+          )
         }.toList
 
         startTime <- IO.realTime
@@ -312,10 +339,9 @@ object RealWorldScenarioTests extends LSPIntegrationTestSuite {
         endTime   <- IO.realTime
 
         duration = endTime - startTime
-      } yield {
+      } yield
         // Should complete all requests reasonably quickly (less than 30 seconds)
         expect(duration < 30.seconds)
-      }
     }
   }
 }

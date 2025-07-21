@@ -50,8 +50,6 @@ def bspClientHandler(lspClient: SlsLanguageClient[IO], diagnosticManager: Diagno
     .serverEndpoints(
       new BuildClient[IO] {
 
-        
-
         def onBuildLogMessage(input: LogMessageParams): IO[Unit] = IO.unit // we want some logging to file here
 
         def onBuildPublishDiagnostics(input: PublishDiagnosticsParams): IO[Unit] =

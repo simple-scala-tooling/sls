@@ -1,7 +1,7 @@
 package org.scala.abusers.sls.integration.utils
 
-import cats.effect.IO
 import cats.effect.kernel.Ref
+import cats.effect.IO
 import cats.syntax.all.*
 import lsp.*
 import org.scala.abusers.sls.SlsLanguageClient
@@ -9,7 +9,7 @@ import org.scala.abusers.sls.SlsLanguageClient
 class TestLSPClient(
     diagnosticsRef: Ref[IO, List[PublishDiagnosticsParams]],
     messagesRef: Ref[IO, List[ShowMessageParams]],
-    logMessagesRef: Ref[IO, List[LogMessageParams]]
+    logMessagesRef: Ref[IO, List[LogMessageParams]],
 ) extends SlsLanguageClient[IO] {
 
   def textDocumentPublishDiagnostics(params: PublishDiagnosticsParams): IO[Unit] =

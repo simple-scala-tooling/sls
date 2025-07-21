@@ -12,9 +12,9 @@ object TextDocumentSyncIntegrationTests extends LSPIntegrationTestSuite {
   test("opens and tracks Scala document") { _ =>
     withSimpleServer.use { ctx =>
       for {
-        _           <- initializeServer(ctx.server, ctx.workspace)
-        _           <- ctx.server.initialized(InitializedParams())
-        fileUri     = ctx.workspace.getSourceFileUri("Main.scala").get
+        _ <- initializeServer(ctx.server, ctx.workspace)
+        _ <- ctx.server.initialized(InitializedParams())
+        fileUri = ctx.workspace.getSourceFileUri("Main.scala").get
         fileContent <- readFileContent(ctx.workspace.getSourceFile("Main.scala").get)
         _           <- openDocument(ctx.server, fileUri, fileContent)
         // Document should be tracked internally - this tests the flow doesn't error
@@ -25,9 +25,9 @@ object TextDocumentSyncIntegrationTests extends LSPIntegrationTestSuite {
   test("handles incremental document changes") { _ =>
     withSimpleServer.use { ctx =>
       for {
-        _           <- initializeServer(ctx.server, ctx.workspace)
-        _           <- ctx.server.initialized(InitializedParams())
-        fileUri     = ctx.workspace.getSourceFileUri("Main.scala").get
+        _ <- initializeServer(ctx.server, ctx.workspace)
+        _ <- ctx.server.initialized(InitializedParams())
+        fileUri = ctx.workspace.getSourceFileUri("Main.scala").get
         fileContent <- readFileContent(ctx.workspace.getSourceFile("Main.scala").get)
         _           <- openDocument(ctx.server, fileUri, fileContent)
 
@@ -36,11 +36,13 @@ object TextDocumentSyncIntegrationTests extends LSPIntegrationTestSuite {
           textDocument = VersionedTextDocumentIdentifier(uri = fileUri, version = 2),
           contentChanges = List(
             makeTextChange(
-              startLine = 5, startChar = 1, // After the closing brace
-              endLine = 5, endChar = 1,
-              text = "\n\n// Integration test comment"
+              startLine = 5,
+              startChar = 1, // After the closing brace
+              endLine = 5,
+              endChar = 1,
+              text = "\n\n// Integration test comment",
             )
-          )
+          ),
         )
         _ <- ctx.server.textDocumentDidChange(changeParams)
       } yield success
@@ -50,28 +52,30 @@ object TextDocumentSyncIntegrationTests extends LSPIntegrationTestSuite {
   test("handles full document replacement") { _ =>
     withSimpleServer.use { ctx =>
       for {
-        _           <- initializeServer(ctx.server, ctx.workspace)
-        _           <- ctx.server.initialized(InitializedParams())
-        fileUri     = ctx.workspace.getSourceFileUri("Utils.scala").get
+        _ <- initializeServer(ctx.server, ctx.workspace)
+        _ <- ctx.server.initialized(InitializedParams())
+        fileUri = ctx.workspace.getSourceFileUri("Utils.scala").get
         fileContent <- readFileContent(ctx.workspace.getSourceFile("Utils.scala").get)
         _           <- openDocument(ctx.server, fileUri, fileContent)
 
         // Full document replacement
         newContent = """class Utils {
-                        |  def greet(name: String): Unit = {
-                        |    println(s"Greetings, $name!")
-                        |  }
-                        |
-                        |  def subtract(a: Int, b: Int): Int = a - b
-                        |}
-                        |""".stripMargin
+                       |  def greet(name: String): Unit = {
+                       |    println(s"Greetings, $name!")
+                       |  }
+                       |
+                       |  def subtract(a: Int, b: Int): Int = a - b
+                       |}
+                       |""".stripMargin
         changeParams = DidChangeTextDocumentParams(
           textDocument = VersionedTextDocumentIdentifier(uri = fileUri, version = 2),
           contentChanges = List(
-            TextDocumentContentChangeEvent.Case1Case(
-              TextDocumentContentChangeWholeDocument(text = newContent)
-            ).asInstanceOf[TextDocumentContentChangeEvent]
-          )
+            TextDocumentContentChangeEvent
+              .Case1Case(
+                TextDocumentContentChangeWholeDocument(text = newContent)
+              )
+              .asInstanceOf[TextDocumentContentChangeEvent]
+          ),
         )
         _ <- ctx.server.textDocumentDidChange(changeParams)
       } yield success
@@ -81,16 +85,16 @@ object TextDocumentSyncIntegrationTests extends LSPIntegrationTestSuite {
   test("handles document save notification") { _ =>
     withSimpleServer.use { ctx =>
       for {
-        _           <- initializeServer(ctx.server, ctx.workspace)
-        _           <- ctx.server.initialized(InitializedParams())
-        fileUri     = ctx.workspace.getSourceFileUri("Main.scala").get
+        _ <- initializeServer(ctx.server, ctx.workspace)
+        _ <- ctx.server.initialized(InitializedParams())
+        fileUri = ctx.workspace.getSourceFileUri("Main.scala").get
         fileContent <- readFileContent(ctx.workspace.getSourceFile("Main.scala").get)
         _           <- openDocument(ctx.server, fileUri, fileContent)
 
         // Save the document
         saveParams = DidSaveTextDocumentParams(
           textDocument = TextDocumentIdentifier(uri = fileUri),
-          text = Some(fileContent)
+          text = Some(fileContent),
         )
         _ <- ctx.server.textDocumentDidSave(saveParams)
       } yield success
@@ -100,9 +104,9 @@ object TextDocumentSyncIntegrationTests extends LSPIntegrationTestSuite {
   test("handles document close notification") { _ =>
     withSimpleServer.use { ctx =>
       for {
-        _           <- initializeServer(ctx.server, ctx.workspace)
-        _           <- ctx.server.initialized(InitializedParams())
-        fileUri     = ctx.workspace.getSourceFileUri("Main.scala").get
+        _ <- initializeServer(ctx.server, ctx.workspace)
+        _ <- ctx.server.initialized(InitializedParams())
+        fileUri = ctx.workspace.getSourceFileUri("Main.scala").get
         fileContent <- readFileContent(ctx.workspace.getSourceFile("Main.scala").get)
         _           <- openDocument(ctx.server, fileUri, fileContent)
 
@@ -119,10 +123,10 @@ object TextDocumentSyncIntegrationTests extends LSPIntegrationTestSuite {
   test("publishes diagnostics after document changes".ignore) { _ =>
     withSimpleServer.use { ctx =>
       for {
-        _           <- initializeServer(ctx.server, ctx.workspace)
-        _           <- ctx.server.initialized(InitializedParams())
-        _           <- ctx.client.clearAll // Clear any initial diagnostics
-        fileUri     = ctx.workspace.getSourceFileUri("Main.scala").get
+        _ <- initializeServer(ctx.server, ctx.workspace)
+        _ <- ctx.server.initialized(InitializedParams())
+        _ <- ctx.client.clearAll // Clear any initial diagnostics
+        fileUri = ctx.workspace.getSourceFileUri("Main.scala").get
 
         // Open a document with syntax error
         invalidContent = """object Main {
@@ -139,20 +143,19 @@ object TextDocumentSyncIntegrationTests extends LSPIntegrationTestSuite {
 
         // Check if diagnostics were published
         diagnostics <- ctx.client.getPublishedDiagnostics
-      } yield {
+      } yield
         // We expect at least one diagnostic publication
         expect(diagnostics.nonEmpty)
-      }
     }
   }
 
   test("handles multiple document operations in sequence") { _ =>
     withSimpleServer.use { ctx =>
       for {
-        _            <- initializeServer(ctx.server, ctx.workspace)
-        _            <- ctx.server.initialized(InitializedParams())
-        mainUri      = ctx.workspace.getSourceFileUri("Main.scala").get
-        utilsUri     = ctx.workspace.getSourceFileUri("Utils.scala").get
+        _ <- initializeServer(ctx.server, ctx.workspace)
+        _ <- ctx.server.initialized(InitializedParams())
+        mainUri  = ctx.workspace.getSourceFileUri("Main.scala").get
+        utilsUri = ctx.workspace.getSourceFileUri("Utils.scala").get
         mainContent  <- readFileContent(ctx.workspace.getSourceFile("Main.scala").get)
         utilsContent <- readFileContent(ctx.workspace.getSourceFile("Utils.scala").get)
 
@@ -165,11 +168,13 @@ object TextDocumentSyncIntegrationTests extends LSPIntegrationTestSuite {
           textDocument = VersionedTextDocumentIdentifier(uri = mainUri, version = 2),
           contentChanges = List(
             makeTextChange(
-              startLine = 2, startChar = 4,
-              endLine = 2, endChar = 4,
-              text = "\n    val testVar = 42"
+              startLine = 2,
+              startChar = 4,
+              endLine = 2,
+              endChar = 4,
+              text = "\n    val testVar = 42",
             )
-          )
+          ),
         )
         _ <- ctx.server.textDocumentDidChange(mainChangeParams)
 
@@ -178,28 +183,36 @@ object TextDocumentSyncIntegrationTests extends LSPIntegrationTestSuite {
           textDocument = VersionedTextDocumentIdentifier(uri = utilsUri, version = 2),
           contentChanges = List(
             makeTextChange(
-              startLine = 8, startChar = 1,
-              endLine = 8, endChar = 1,
-              text = "\n  \n  def divide(a: Double, b: Double): Double = a / b"
+              startLine = 8,
+              startChar = 1,
+              endLine = 8,
+              endChar = 1,
+              text = "\n  \n  def divide(a: Double, b: Double): Double = a / b",
             )
-          )
+          ),
         )
         _ <- ctx.server.textDocumentDidChange(utilsChangeParams)
 
         // Save both documents
-        _ <- ctx.server.textDocumentDidSave(DidSaveTextDocumentParams(
-          textDocument = TextDocumentIdentifier(uri = mainUri),
-          text = None
-        ))
-        _ <- ctx.server.textDocumentDidSave(DidSaveTextDocumentParams(
-          textDocument = TextDocumentIdentifier(uri = utilsUri),
-          text = None
-        ))
+        _ <- ctx.server.textDocumentDidSave(
+          DidSaveTextDocumentParams(
+            textDocument = TextDocumentIdentifier(uri = mainUri),
+            text = None,
+          )
+        )
+        _ <- ctx.server.textDocumentDidSave(
+          DidSaveTextDocumentParams(
+            textDocument = TextDocumentIdentifier(uri = utilsUri),
+            text = None,
+          )
+        )
 
         // Close Utils.scala
-        _ <- ctx.server.textDocumentDidClose(DidCloseTextDocumentParams(
-          textDocument = TextDocumentIdentifier(uri = utilsUri)
-        ))
+        _ <- ctx.server.textDocumentDidClose(
+          DidCloseTextDocumentParams(
+            textDocument = TextDocumentIdentifier(uri = utilsUri)
+          )
+        )
       } yield success
     }
   }
@@ -207,9 +220,9 @@ object TextDocumentSyncIntegrationTests extends LSPIntegrationTestSuite {
   test("handles document changes with version tracking") { _ =>
     withSimpleServer.use { ctx =>
       for {
-        _           <- initializeServer(ctx.server, ctx.workspace)
-        _           <- ctx.server.initialized(InitializedParams())
-        fileUri     = ctx.workspace.getSourceFileUri("Main.scala").get
+        _ <- initializeServer(ctx.server, ctx.workspace)
+        _ <- ctx.server.initialized(InitializedParams())
+        fileUri = ctx.workspace.getSourceFileUri("Main.scala").get
         fileContent <- readFileContent(ctx.workspace.getSourceFile("Main.scala").get)
         _           <- openDocument(ctx.server, fileUri, fileContent)
 
@@ -218,7 +231,7 @@ object TextDocumentSyncIntegrationTests extends LSPIntegrationTestSuite {
           textDocument = VersionedTextDocumentIdentifier(uri = fileUri, version = 2),
           contentChanges = List(
             makeTextChange(0, 0, 0, 0, "// Version 2\n")
-          )
+          ),
         )
         _ <- ctx.server.textDocumentDidChange(change1)
 
@@ -226,7 +239,7 @@ object TextDocumentSyncIntegrationTests extends LSPIntegrationTestSuite {
           textDocument = VersionedTextDocumentIdentifier(uri = fileUri, version = 3),
           contentChanges = List(
             makeTextChange(1, 0, 1, 0, "// Version 3\n")
-          )
+          ),
         )
         _ <- ctx.server.textDocumentDidChange(change2)
 
@@ -234,7 +247,7 @@ object TextDocumentSyncIntegrationTests extends LSPIntegrationTestSuite {
           textDocument = VersionedTextDocumentIdentifier(uri = fileUri, version = 4),
           contentChanges = List(
             makeTextChange(2, 0, 2, 0, "// Version 4\n")
-          )
+          ),
         )
         _ <- ctx.server.textDocumentDidChange(change3)
       } yield success

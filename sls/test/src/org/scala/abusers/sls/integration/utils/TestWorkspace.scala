@@ -10,7 +10,7 @@ import java.net.URI
 case class TestWorkspace(
     root: Path,
     uri: URI,
-    sourceFiles: Map[String, Path]
+    sourceFiles: Map[String, Path],
 ) {
   def rootUri: String = uri.toString
 
@@ -22,7 +22,7 @@ case class TestWorkspace(
 
 object TestWorkspace {
 
-  def withSimpleScalaProject: Resource[IO, TestWorkspace] = {
+  def withSimpleScalaProject: Resource[IO, TestWorkspace] =
     for {
       tempDir <- Files[IO].tempDirectory(None, "test-workspace-", None)
       _       <- createMillVersion(tempDir).toResource
@@ -30,13 +30,12 @@ object TestWorkspace {
       _       <- createSourceFiles(tempDir).toResource
       _       <- copyMillExecutable(tempDir).toResource
       sourceFiles = Map(
-        "Main.scala" -> tempDir / "app" / "src" / "Main.scala",
-        "Utils.scala" -> tempDir / "app" / "src" / "Utils.scala"
+        "Main.scala"  -> tempDir / "app" / "src" / "Main.scala",
+        "Utils.scala" -> tempDir / "app" / "src" / "Utils.scala",
       )
     } yield TestWorkspace(tempDir, tempDir.toNioPath.toUri, sourceFiles)
-  }
 
-  def withMultiModuleProject: Resource[IO, TestWorkspace] = {
+  def withMultiModuleProject: Resource[IO, TestWorkspace] =
     for {
       tempDir <- Files[IO].tempDirectory(None, "test-multi-", None)
       _       <- createMillVersion(tempDir).toResource
@@ -45,15 +44,19 @@ object TestWorkspace {
       _       <- copyMillExecutable(tempDir).toResource
       sourceFiles = Map(
         "core/Domain.scala" -> tempDir / "core" / "src" / "Domain.scala",
-        "app/Main.scala" -> tempDir / "app" / "src" / "Main.scala"
+        "app/Main.scala"    -> tempDir / "app" / "src" / "Main.scala",
       )
     } yield TestWorkspace(tempDir, tempDir.toNioPath.toUri, sourceFiles)
-  }
 
   private def createMillVersion(root: Path): IO[Unit] = {
     // Use the same mill version as the main project
     val millVersion = "0.12.11"
-    fs2.Stream.emit(millVersion).through(fs2.text.utf8.encode).through(Files[IO].writeAll(root / ".mill-version")).compile.drain
+    fs2.Stream
+      .emit(millVersion)
+      .through(fs2.text.utf8.encode)
+      .through(Files[IO].writeAll(root / ".mill-version"))
+      .compile
+      .drain
   }
 
   private def createBuildMill(root: Path): IO[Unit] = {
@@ -65,19 +68,24 @@ object TestWorkspace {
                          |  def scalacOptions = Seq("-no-indent", "-Wunused:all")
                          |}
                          |""".stripMargin
-    fs2.Stream.emit(buildContent).through(fs2.text.utf8.encode).through(Files[IO].writeAll(root / "build.mill")).compile.drain
+    fs2.Stream
+      .emit(buildContent)
+      .through(fs2.text.utf8.encode)
+      .through(Files[IO].writeAll(root / "build.mill"))
+      .compile
+      .drain
   }
 
   private def createSourceFiles(root: Path): IO[Unit] = {
     val srcDir = root / "app" / "src"
     val mainContent = """object Main {
-                         |  def main(args: Array[String]): Unit = {
-                         |    println("Hello, World!")
-                         |    val utils = new Utils()
-                         |    utils.greet("Integration Test")
-                         |  }
-                         |}
-                         |""".stripMargin
+                        |  def main(args: Array[String]): Unit = {
+                        |    println("Hello, World!")
+                        |    val utils = new Utils()
+                        |    utils.greet("Integration Test")
+                        |  }
+                        |}
+                        |""".stripMargin
 
     val utilsContent = """class Utils {
                          |  def greet(name: String): Unit = {
@@ -91,8 +99,18 @@ object TestWorkspace {
                          |""".stripMargin
 
     Files[IO].createDirectories(srcDir) *>
-      fs2.Stream.emit(mainContent).through(fs2.text.utf8.encode).through(Files[IO].writeAll(srcDir / "Main.scala")).compile.drain *>
-      fs2.Stream.emit(utilsContent).through(fs2.text.utf8.encode).through(Files[IO].writeAll(srcDir / "Utils.scala")).compile.drain
+      fs2.Stream
+        .emit(mainContent)
+        .through(fs2.text.utf8.encode)
+        .through(Files[IO].writeAll(srcDir / "Main.scala"))
+        .compile
+        .drain *>
+      fs2.Stream
+        .emit(utilsContent)
+        .through(fs2.text.utf8.encode)
+        .through(Files[IO].writeAll(srcDir / "Utils.scala"))
+        .compile
+        .drain
   }
 
   private def createMultiModuleBuild(root: Path): IO[Unit] = {
@@ -110,12 +128,17 @@ object TestWorkspace {
                          |  def moduleDeps = Seq(core)
                          |}
                          |""".stripMargin
-    fs2.Stream.emit(buildContent).through(fs2.text.utf8.encode).through(Files[IO].writeAll(root / "build.mill")).compile.drain
+    fs2.Stream
+      .emit(buildContent)
+      .through(fs2.text.utf8.encode)
+      .through(Files[IO].writeAll(root / "build.mill"))
+      .compile
+      .drain
   }
 
   private def createMultiModuleSource(root: Path): IO[Unit] = {
     val coreDir = root / "core" / "src"
-    val appDir = root / "app" / "src"
+    val appDir  = root / "app" / "src"
 
     val domainContent = """package core
                           |
@@ -149,8 +172,18 @@ object TestWorkspace {
 
     Files[IO].createDirectories(coreDir) *>
       Files[IO].createDirectories(appDir) *>
-      fs2.Stream.emit(domainContent).through(fs2.text.utf8.encode).through(Files[IO].writeAll(coreDir / "Domain.scala")).compile.drain *>
-      fs2.Stream.emit(mainContent).through(fs2.text.utf8.encode).through(Files[IO].writeAll(appDir / "Main.scala")).compile.drain
+      fs2.Stream
+        .emit(domainContent)
+        .through(fs2.text.utf8.encode)
+        .through(Files[IO].writeAll(coreDir / "Domain.scala"))
+        .compile
+        .drain *>
+      fs2.Stream
+        .emit(mainContent)
+        .through(fs2.text.utf8.encode)
+        .through(Files[IO].writeAll(appDir / "Main.scala"))
+        .compile
+        .drain
   }
 
   private def copyMillExecutable(root: Path): IO[Unit] = {
@@ -158,22 +191,23 @@ object TestWorkspace {
     def findProjectRoot(currentPath: Path): IO[Path] = {
       val millFile = currentPath / "mill"
       for {
-        exists <- Files[IO].exists(millFile)
+        exists        <- Files[IO].exists(millFile)
         isRegularFile <- if (exists) Files[IO].isRegularFile(millFile) else IO.pure(false)
-        result <- if (exists && isRegularFile) {
-          IO.pure(currentPath)
-        } else {
-          val parent = currentPath.parent
-          parent match {
-            case Some(p) => findProjectRoot(p)
-            case None => IO.raiseError(new RuntimeException("Could not find mill executable in project hierarchy"))
+        result <-
+          if (exists && isRegularFile) {
+            IO.pure(currentPath)
+          } else {
+            val parent = currentPath.parent
+            parent match {
+              case Some(p) => findProjectRoot(p)
+              case None    => IO.raiseError(new RuntimeException("Could not find mill executable in project hierarchy"))
+            }
           }
-        }
       } yield result
     }
-    
+
     for {
-      currentDir <- IO.pure(Path.fromNioPath(java.nio.file.Paths.get(System.getProperty("user.dir"))))
+      currentDir  <- IO.pure(Path.fromNioPath(java.nio.file.Paths.get(System.getProperty("user.dir"))))
       projectRoot <- findProjectRoot(currentDir)
       millSource = projectRoot / "mill"
       millTarget = root / "mill"
@@ -182,7 +216,15 @@ object TestWorkspace {
       _ <- IO {
         import java.nio.file.Files as JFiles
         import java.nio.file.attribute.PosixFilePermission.*
-        val perms = java.util.Set.of(OWNER_READ, OWNER_WRITE, OWNER_EXECUTE, GROUP_READ, GROUP_EXECUTE, OTHERS_READ, OTHERS_EXECUTE)
+        val perms = java.util.Set.of(
+          OWNER_READ,
+          OWNER_WRITE,
+          OWNER_EXECUTE,
+          GROUP_READ,
+          GROUP_EXECUTE,
+          OTHERS_READ,
+          OTHERS_EXECUTE,
+        )
         JFiles.setPosixFilePermissions(millTarget.toNioPath, perms)
       }
     } yield ()

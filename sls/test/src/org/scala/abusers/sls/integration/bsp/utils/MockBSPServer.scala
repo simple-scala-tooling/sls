@@ -1,18 +1,18 @@
 package org.scala.abusers.sls.integration.bsp.utils
 
-import cats.effect.IO
+import bsp.scala_.ScalaPlatform.JVM
+import bsp.BuildTarget
 import cats.effect.kernel.Ref
+import cats.effect.IO
 import cats.syntax.all.*
 import org.scala.abusers.sls.BuildServer
-import bsp.BuildTarget
-import bsp.scala_.ScalaPlatform.JVM
 
-/** Simple stub implementations of BSP services for testing.
-  * Uses smithy4s pattern of directly implementing the generated service interfaces.
+/** Simple stub implementations of BSP services for testing. Uses smithy4s pattern of directly implementing the
+  * generated service interfaces.
   */
 class MockBSPServer(
     compileRequestsRef: Ref[IO, List[bsp.CompileParams]],
-    connectedRef: Ref[IO, Boolean]
+    connectedRef: Ref[IO, Boolean],
 ) {
 
   /** Creates a BuildServer with stub implementations for testing */
@@ -20,50 +20,51 @@ class MockBSPServer(
     generic = new StubBuildServer(connectedRef, compileRequestsRef),
     jvm = new StubJvmBuildServer,
     scala = new StubScalaBuildServer,
-    java = new StubJavaBuildServer
+    java = new StubJavaBuildServer,
   )
 
   def getCompileRequests: IO[List[bsp.CompileParams]] = compileRequestsRef.get
-  def isConnected: IO[Boolean] = connectedRef.get
-  def clearRequests: IO[Unit] = compileRequestsRef.set(List.empty)
+  def isConnected: IO[Boolean]                        = connectedRef.get
+  def clearRequests: IO[Unit]                         = compileRequestsRef.set(List.empty)
 }
 
 /** Stub implementation of BuildServer for testing */
 class StubBuildServer(
     connectedRef: Ref[IO, Boolean],
-    compileRequestsRef: Ref[IO, List[bsp.CompileParams]]
+    compileRequestsRef: Ref[IO, List[bsp.CompileParams]],
 ) extends bsp.BuildServer[IO] {
 
-  def buildInitialize(params: bsp.InitializeBuildParams): IO[bsp.InitializeBuildResult] = {
+  def buildInitialize(params: bsp.InitializeBuildParams): IO[bsp.InitializeBuildResult] =
     connectedRef.set(true) *>
-      IO.pure(bsp.InitializeBuildResult(
-        displayName = "Mock BSP Server",
-        version = "1.0.0",
-        bspVersion = "2.1.0",
-        capabilities = bsp.BuildServerCapabilities(
-          compileProvider = Some(bsp.CompileProvider(languageIds = List(bsp.LanguageId("scala")))),
-          testProvider = Some(bsp.TestProvider(languageIds = List(bsp.LanguageId("scala")))),
-          runProvider = Some(bsp.RunProvider(languageIds = List(bsp.LanguageId("scala")))),
-          debugProvider = Some(bsp.DebugProvider(languageIds = List(bsp.LanguageId("scala")))),
-          inverseSourcesProvider = true,
-          dependencySourcesProvider = true,
-          dependencyModulesProvider = true,
-          resourcesProvider = true,
-          outputPathsProvider = true,
-          buildTargetChangedProvider = true,
-          jvmRunEnvironmentProvider = true,
-          jvmTestEnvironmentProvider = true,
-          canReload = true
+      IO.pure(
+        bsp.InitializeBuildResult(
+          displayName = "Mock BSP Server",
+          version = "1.0.0",
+          bspVersion = "2.1.0",
+          capabilities = bsp.BuildServerCapabilities(
+            compileProvider = Some(bsp.CompileProvider(languageIds = List(bsp.LanguageId("scala")))),
+            testProvider = Some(bsp.TestProvider(languageIds = List(bsp.LanguageId("scala")))),
+            runProvider = Some(bsp.RunProvider(languageIds = List(bsp.LanguageId("scala")))),
+            debugProvider = Some(bsp.DebugProvider(languageIds = List(bsp.LanguageId("scala")))),
+            inverseSourcesProvider = true,
+            dependencySourcesProvider = true,
+            dependencyModulesProvider = true,
+            resourcesProvider = true,
+            outputPathsProvider = true,
+            buildTargetChangedProvider = true,
+            jvmRunEnvironmentProvider = true,
+            jvmTestEnvironmentProvider = true,
+            canReload = true,
+          ),
         )
-      ))
-  }
+      )
 
   def onBuildInitialized(): IO[Unit] = IO.unit
-  def buildShutdown(): IO[Unit] = connectedRef.set(false)
-  def onBuildExit(): IO[Unit] = IO.unit
-  def workspaceReload(): IO[Unit] = IO.unit
+  def buildShutdown(): IO[Unit]      = connectedRef.set(false)
+  def onBuildExit(): IO[Unit]        = IO.unit
+  def workspaceReload(): IO[Unit]    = IO.unit
 
-  def workspaceBuildTargets(): IO[bsp.WorkspaceBuildTargetsResult] = {
+  def workspaceBuildTargets(): IO[bsp.WorkspaceBuildTargetsResult] =
     // Set connected state when BSP server is actually used
     connectedRef.set(true) *> {
       // Create a basic mock build target for testing
@@ -77,7 +78,7 @@ class StubBuildServer(
           canCompile = Some(true),
           canTest = Some(true),
           canRun = Some(true),
-          canDebug = Some(false)
+          canDebug = Some(false),
         ),
         languageIds = List(bsp.LanguageId("scala")),
         dependencies = List.empty,
@@ -86,12 +87,11 @@ class StubBuildServer(
           scalaVersion = "3.7.2-RC1-bin-20250616-61d9887-NIGHTLY",
           scalaBinaryVersion = "3",
           platform = JVM,
-          jars = List(bsp.URI("file:///mock/lib/scala-library.jar"))
-        )
+          jars = List(bsp.URI("file:///mock/lib/scala-library.jar")),
+        ),
       )
       IO.pure(bsp.WorkspaceBuildTargetsResult(List(mockTarget)))
     }
-  }
 
   def buildTargetSources(params: bsp.SourcesParams): IO[bsp.SourcesResult] = {
     val sourceItems = params.targets.map { targetId =>
@@ -101,10 +101,10 @@ class StubBuildServer(
           bsp.SourceItem(
             uri = bsp.URI("file:///mock/src/main/scala/Test.scala"),
             kind = bsp.SourceItemKind.FILE,
-            generated = false
+            generated = false,
           )
         ),
-        roots = Some(List(bsp.URI("file:///mock/src/main/scala")))
+        roots = Some(List(bsp.URI("file:///mock/src/main/scala"))),
       )
     }
     IO.pure(bsp.SourcesResult(sourceItems))
@@ -127,27 +127,32 @@ class StubBuildServer(
   def buildTargetOutputPaths(params: bsp.OutputPathsParams): IO[bsp.OutputPathsResult] =
     IO.pure(bsp.OutputPathsResult(List.empty))
 
-  def buildTargetCompile(params: bsp.CompileParams): IO[bsp.CompileResult] = {
+  def buildTargetCompile(params: bsp.CompileParams): IO[bsp.CompileResult] =
     compileRequestsRef.update(_ :+ params) *>
-      IO.pure(bsp.CompileResult(
-        statusCode = bsp.StatusCode.OK,
-        originId = params.originId,
-        data = None
-      ))
-  }
+      IO.pure(
+        bsp.CompileResult(
+          statusCode = bsp.StatusCode.OK,
+          originId = params.originId,
+          data = None,
+        )
+      )
 
   def buildTargetTest(params: bsp.TestParams): IO[bsp.TestResult] =
-    IO.pure(bsp.TestResult(
-      statusCode = bsp.StatusCode.OK,
-      originId = params.originId,
-      data = None
-    ))
+    IO.pure(
+      bsp.TestResult(
+        statusCode = bsp.StatusCode.OK,
+        originId = params.originId,
+        data = None,
+      )
+    )
 
   def buildTargetRun(params: bsp.RunParams): IO[bsp.RunResult] =
-    IO.pure(bsp.RunResult(
-      originId = params.originId,
-      statusCode = bsp.StatusCode.OK
-    ))
+    IO.pure(
+      bsp.RunResult(
+        originId = params.originId,
+        statusCode = bsp.StatusCode.OK,
+      )
+    )
 
   def debugSessionStart(params: bsp.DebugSessionParams): IO[bsp.DebugSessionAddress] =
     IO.raiseError(new UnsupportedOperationException("Debug not supported in mock"))
@@ -188,7 +193,7 @@ class StubScalaBuildServer extends bsp.scala_.ScalaBuildServer[IO] {
         target = targetId,
         options = List("-unchecked", "-deprecation"),
         classpath = List("file:///mock/lib/scala-library.jar"),
-        classDirectory = "file:///mock/target/classes"
+        classDirectory = "file:///mock/target/classes",
       )
     }
     IO.pure(bsp.scala_.ScalacOptionsResult(scalaOptions))
@@ -210,12 +215,11 @@ class StubJavaBuildServer extends bsp.java_.JavaBuildServer[IO] {
 object MockBSPServer {
 
   /** Creates a basic MockBSPServer for testing */
-  def create: IO[MockBSPServer] = {
+  def create: IO[MockBSPServer] =
     for {
       compileRequestsRef <- Ref.of[IO, List[bsp.CompileParams]](List.empty)
-      connectedRef <- Ref.of[IO, Boolean](false)
+      connectedRef       <- Ref.of[IO, Boolean](false)
     } yield MockBSPServer(compileRequestsRef, connectedRef)
-  }
 
   /** Creates MockBSPServer with default test configuration */
   def withDefaultTargets: IO[MockBSPServer] = create

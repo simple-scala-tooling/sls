@@ -323,6 +323,6 @@ class ServerImpl(
           .evalMap(client.logMessage)
           .compile
           .drain
-    }
+      }
   }
 }
