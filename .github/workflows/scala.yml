@@ -23,7 +23,5 @@ jobs:
     - uses: actions/checkout@v4
     - name: Install Nix
       uses: cachix/install-nix-action@v31
-    - name: Wait for bloop server to start
-      run: sleep 5
     - name: Run tests
       run: nix develop --command ./mill _.test
