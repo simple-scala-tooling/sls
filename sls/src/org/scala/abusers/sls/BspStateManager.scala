@@ -53,11 +53,12 @@ class BspStateManager(
 
   def importBuild =
     for {
-      _             <- lspClient.logMessage("Starting build import.") // in the future this should be a task with progress
+      _ <- lspClient.logMessage("Starting build import.") // in the future this should be a task with progress
       importedBuild <- getBuildInformation(bspServer)
       _ <- bspServer.generic.buildTargetCompile(CompileParams(targets = importedBuild.map(_.buildTarget.id).toList))
       _ <- targets.set(importedBuild)
       _ <- lspClient.logMessage("Build import finished.")
+      _ <- lspClient.logDebug("Build import finished. Available targets: " + importedBuild.mkString("\n"))
     } yield ()
 
   private val byScalaVersion: Ordering[ScalaBuildTargetInformation] = new Ordering[ScalaBuildTargetInformation] {
@@ -68,6 +69,9 @@ class BspStateManager(
   private def getBuildInformation(bspServer: BuildServer): IO[Set[ScalaBuildTargetInformation]] =
     for {
       workspaceBuildTargets <- bspServer.generic.workspaceBuildTargets()
+      _ <- lspClient.logDebug(
+        s"Workspace build targets: ${workspaceBuildTargets.targets.map(_.id).mkString(", ")}"
+      )
       scalacOptions <- bspServer.scala.buildTargetScalacOptions(
         ScalacOptionsParams(targets = workspaceBuildTargets.targets.map(_.id))
       ) //

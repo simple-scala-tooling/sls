@@ -41,7 +41,7 @@ class ServerImpl(
     diagnosticManager: DiagnosticManager,
     steward: ResourceSupervisor[IO],
     bspClientDeferred: Deferred[IO, BuildServer],
-    lspClient: SlsLanguageClient[IO]
+    lspClient: SlsLanguageClient[IO],
 ) extends SlsLanguageServer[IO] {
 
   /* There can only be one client for one language-server */
@@ -70,7 +70,7 @@ class ServerImpl(
       lsp
         .InitializeResult(
           capabilities = serverCapabilities,
-          serverInfo = lsp.ServerInfo("Simple (Scala) Language Server").some,
+          serverInfo = lsp.ServerInfo("Simple (Scala) Language Server", Some("0.0.1")).some,
         )
         .some
     )).guaranteeCase(s => lspClient.logMessage(s"closing initalize with $s"))
@@ -226,14 +226,14 @@ class ServerImpl(
             .withFieldRenamed(_.everyItem.getMessage, _.everyItem.message)
             .enableOptionDefaultsToNone
             .transform
-          _       <- diagnosticManager.didChange(lspClient, uri.toString, lspDiags)
+          _ <- diagnosticManager.didChange(lspClient, uri.toString, lspDiags)
         } yield ()
       }
 
     params =>
       for {
-        _       <- stateManager.didChange(params)
-        _       <- lspClient.logDebug("Updated DocumentState")
+        _ <- stateManager.didChange(params)
+        _ <- lspClient.logDebug("Updated DocumentState")
         uri = URI(params.textDocument.uri)
         info <- stateManager.getBuildTargetInformation(uri)
         _    <- if isSupported(info) then debounce.debounce(pcDiagnostics(info, uri)) else IO.unit

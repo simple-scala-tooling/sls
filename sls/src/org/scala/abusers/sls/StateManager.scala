@@ -8,7 +8,11 @@ import java.net.URI
 
 object StateManager {
 
-  def instance(lspClient: SlsLanguageClient[IO], textDocumentSyncManager: TextDocumentSyncManager, bspStateManager: BspStateManager): IO[StateManager] =
+  def instance(
+      lspClient: SlsLanguageClient[IO],
+      textDocumentSyncManager: TextDocumentSyncManager,
+      bspStateManager: BspStateManager,
+  ): IO[StateManager] =
     Mutex[IO].map(StateManager(lspClient, textDocumentSyncManager, bspStateManager, _))
 
 }
