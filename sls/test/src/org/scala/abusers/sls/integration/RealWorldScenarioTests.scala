@@ -23,9 +23,6 @@ object RealWorldScenarioTests extends LSPIntegrationTestSuite {
         _ <- openDocument(ctx.server, appUri, appContent)
         _ <- openDocument(ctx.server, coreUri, coreContent)
 
-        // Wait for processing
-        _ <- IO.sleep(3.seconds)
-
         // Test completion in app module that should include core module symbols
         completionParams = CompletionParams(
           textDocument = TextDocumentIdentifier(uri = appUri),
@@ -68,9 +65,6 @@ object RealWorldScenarioTests extends LSPIntegrationTestSuite {
         // Open both documents
         _ <- openDocument(ctx.server, mainUri, mainContent)
         _ <- openDocument(ctx.server, utilsUri, utilsContent)
-
-        // Wait for processing
-        _ <- IO.sleep(2.seconds)
 
         // Make multiple concurrent requests
         hoverMain = ctx.server.textDocumentHoverOp(HoverParams(
@@ -124,9 +118,6 @@ object RealWorldScenarioTests extends LSPIntegrationTestSuite {
         fileContent <- readFileContent(ctx.workspace.getSourceFile("Utils.scala").get)
         _           <- openDocument(ctx.server, fileUri, fileContent)
 
-        // Wait for initial processing
-        _ <- IO.sleep(1.second)
-
         // Make rapid successive changes
         changes = (1 to 10).toList.map { i =>
           DidChangeTextDocumentParams(
@@ -145,9 +136,6 @@ object RealWorldScenarioTests extends LSPIntegrationTestSuite {
         _ <- changes.traverse { change =>
           ctx.server.textDocumentDidChange(change) *> IO.sleep(50.millis)
         }
-
-        // Wait for debouncing to settle
-        _ <- IO.sleep(500.millis)
 
         // Server should still be responsive
         hoverParams = HoverParams(
@@ -187,9 +175,6 @@ object RealWorldScenarioTests extends LSPIntegrationTestSuite {
         }
 
         _ <- openDocument(ctx.server, fileUri, largeContent)
-
-        // Wait for processing
-        _ <- IO.sleep(3.seconds)
 
         // Test completion in large file
         completionParams = CompletionParams(
@@ -239,9 +224,6 @@ object RealWorldScenarioTests extends LSPIntegrationTestSuite {
                            |""".stripMargin
           openDocument(ctx.server, fileUri, content)
         }
-
-        // Wait for processing
-        _ <- IO.sleep(3.seconds)
 
         // Test that server can handle requests across all files
         requests = files.map { fileUri =>
@@ -312,9 +294,6 @@ object RealWorldScenarioTests extends LSPIntegrationTestSuite {
         fileUri     = ctx.workspace.getSourceFileUri("Utils.scala").get
         fileContent <- readFileContent(ctx.workspace.getSourceFile("Utils.scala").get)
         _           <- openDocument(ctx.server, fileUri, fileContent)
-
-        // Wait for initialization
-        _ <- IO.sleep(2.seconds)
 
         // Create many completion requests
         completionRequests = (1 to 50).map { _ =>

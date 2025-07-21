@@ -36,9 +36,6 @@ object BSPIntegrationTests extends LSPIntegrationTestSuite {
         _           <- initializeServer(ctx.server, ctx.workspace)
         _           <- ctx.server.initialized(lsp.InitializedParams())
 
-        // Wait for BSP connection to be established
-        _ <- IO.sleep(2.seconds)
-
         // Verify the mock BSP server is connected
         isConnected <- ctx.mockBSP.isConnected
       } yield expect(isConnected)
@@ -50,9 +47,6 @@ object BSPIntegrationTests extends LSPIntegrationTestSuite {
       for {
         _           <- initializeServer(ctx.server, ctx.workspace)
         _           <- ctx.server.initialized(lsp.InitializedParams())
-
-        // Wait for BSP connection and target discovery
-        _ <- IO.sleep(3.seconds)
 
         // Verify that build targets can be discovered
         bspServer = ctx.mockBSP.createBuildServer
@@ -67,11 +61,11 @@ object BSPIntegrationTests extends LSPIntegrationTestSuite {
         _           <- initializeServer(ctx.server, ctx.workspace)
         _           <- ctx.server.initialized(lsp.InitializedParams())
         _           <- ctx.mockBSP.clearRequests
-        
+
         fileUri     = ctx.workspace.getSourceFileUri("Main.scala").get
         fileContent <- readFileContent(ctx.workspace.getSourceFile("Main.scala").get)
         _           <- openDocument(ctx.server, fileUri, fileContent)
-        
+
         // Make a change that should trigger compilation
         changeParams = lsp.DidChangeTextDocumentParams(
           textDocument = lsp.VersionedTextDocumentIdentifier(uri = fileUri, version = 2),
@@ -84,10 +78,7 @@ object BSPIntegrationTests extends LSPIntegrationTestSuite {
           )
         )
         _ <- ctx.server.textDocumentDidChange(changeParams)
-        
-        // Wait for debounced compilation
-        _ <- IO.sleep(2.seconds)
-        
+
         // Check if compilation was requested
         compileRequests <- ctx.mockBSP.getCompileRequests
       } yield {
@@ -103,24 +94,18 @@ object BSPIntegrationTests extends LSPIntegrationTestSuite {
       for {
         _           <- initializeServer(ctx.server, ctx.workspace)
         _           <- ctx.server.initialized(lsp.InitializedParams())
-        
+
         fileUri     = ctx.workspace.getSourceFileUri("Main.scala").get
         fileContent <- readFileContent(ctx.workspace.getSourceFile("Main.scala").get)
         _           <- openDocument(ctx.server, fileUri, fileContent)
-        
-        // Wait for initial processing
-        _ <- IO.sleep(2.seconds)
-        
+
         // Save the file to trigger compilation
         saveParams = lsp.DidSaveTextDocumentParams(
           textDocument = lsp.TextDocumentIdentifier(uri = fileUri),
           text = Some(fileContent)
         )
         _ <- ctx.server.textDocumentDidSave(saveParams)
-        
-        // Wait for compilation to complete
-        _ <- IO.sleep(3.seconds)
-        
+
         // Check if any diagnostics were published
         diagnostics <- ctx.client.getPublishedDiagnostics
       } yield {
@@ -135,17 +120,14 @@ object BSPIntegrationTests extends LSPIntegrationTestSuite {
       for {
         _           <- initializeServer(ctx.server, ctx.workspace)
         _           <- ctx.server.initialized(lsp.InitializedParams())
-        
-        // Wait for BSP connection
-        _ <- IO.sleep(1.second)
-        
+
         isConnectedBefore <- ctx.mockBSP.isConnected
-        
+
         // Simulate BSP server shutdown
         _ <- ctx.mockBSP.createBuildServer.generic.buildShutdown()
-        
+
         isConnectedAfter <- ctx.mockBSP.isConnected
-        
+
         // Server should still handle LSP requests even after BSP disconnect
         fileUri     = ctx.workspace.getSourceFileUri("Main.scala").get
         fileContent <- readFileContent(ctx.workspace.getSourceFile("Main.scala").get)
@@ -164,9 +146,6 @@ object BSPIntegrationTests extends LSPIntegrationTestSuite {
       for {
         _           <- initializeServer(ctx.server, ctx.workspace)
         _           <- ctx.server.initialized(lsp.InitializedParams())
-
-        // Wait for BSP initialization
-        _ <- IO.sleep(2.seconds)
 
         // Test BSP capabilities by querying scalac options
         bspServer = ctx.mockBSP.createBuildServer
@@ -192,9 +171,6 @@ object BSPIntegrationTests extends LSPIntegrationTestSuite {
         _           <- initializeServer(ctx.server, ctx.workspace)
         _           <- ctx.server.initialized(lsp.InitializedParams())
 
-        // Wait for BSP initialization
-        _ <- IO.sleep(2.seconds)
-
         bspServer = ctx.mockBSP.createBuildServer
         buildTargets <- bspServer.generic.workspaceBuildTargets()
 
@@ -217,9 +193,6 @@ object BSPIntegrationTests extends LSPIntegrationTestSuite {
       for {
         _           <- initializeServer(ctx.server, ctx.workspace)
         _           <- ctx.server.initialized(lsp.InitializedParams())
-
-        // Wait for BSP initialization
-        _ <- IO.sleep(2.seconds)
 
         bspServer = ctx.mockBSP.createBuildServer
 

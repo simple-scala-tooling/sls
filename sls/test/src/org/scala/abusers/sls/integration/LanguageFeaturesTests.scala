@@ -18,9 +18,6 @@ object LanguageFeaturesTests extends LSPIntegrationTestSuite {
         fileContent <- readFileContent(ctx.workspace.getSourceFile("Main.scala").get)
         _           <- openDocument(ctx.server, fileUri, fileContent)
 
-        // Wait for initialization
-        _ <- IO.sleep(1.second)
-
         // Request completion at position where "utils." appears
         completionParams = CompletionParams(
           textDocument = TextDocumentIdentifier(uri = fileUri),
@@ -52,9 +49,6 @@ object LanguageFeaturesTests extends LSPIntegrationTestSuite {
         fileContent <- readFileContent(ctx.workspace.getSourceFile("Utils.scala").get)
         _           <- openDocument(ctx.server, fileUri, fileContent)
 
-        // Wait for initialization
-        _ <- IO.sleep(1.second)
-
         // Request hover for the "greet" method
         hoverParams = HoverParams(
           textDocument = TextDocumentIdentifier(uri = fileUri),
@@ -82,9 +76,6 @@ object LanguageFeaturesTests extends LSPIntegrationTestSuite {
         coreContent    <- readFileContent(ctx.workspace.getSourceFile("core/Domain.scala").get)
         _              <- openDocument(ctx.server, appUri, appContent)
         _              <- openDocument(ctx.server, coreUri, coreContent)
-
-        // Wait for initialization
-        _ <- IO.sleep(2.seconds)
 
         // Request go-to-definition for "UserService" in Main.scala
         definitionParams = DefinitionParams(
@@ -114,9 +105,6 @@ object LanguageFeaturesTests extends LSPIntegrationTestSuite {
         // Modify content to have a method call for signature help
         modifiedContent = fileContent + "\n\nval test = add("
         _ <- openDocument(ctx.server, fileUri, modifiedContent)
-
-        // Wait for processing
-        _ <- IO.sleep(1.second)
 
         // Request signature help inside the method call
         signatureParams = SignatureHelpParams(
@@ -149,9 +137,6 @@ object LanguageFeaturesTests extends LSPIntegrationTestSuite {
         fileUri     = ctx.workspace.getSourceFileUri("Main.scala").get
         fileContent <- readFileContent(ctx.workspace.getSourceFile("Main.scala").get)
         _           <- openDocument(ctx.server, fileUri, fileContent)
-
-        // Wait for processing
-        _ <- IO.sleep(1.second)
 
         // Request inlay hints for the entire file
         inlayParams = InlayHintParams(
@@ -190,9 +175,6 @@ object LanguageFeaturesTests extends LSPIntegrationTestSuite {
                         |}
                         |""".stripMargin
         _ <- openDocument(ctx.server, fileUri, testContent)
-
-        // Wait for processing
-        _ <- IO.sleep(1.second)
 
         // Test completion after dot
         dotCompletion = CompletionParams(
@@ -243,9 +225,6 @@ object LanguageFeaturesTests extends LSPIntegrationTestSuite {
                            |}
                            |""".stripMargin
         _ <- openDocument(ctx.server, fileUri, invalidContent)
-
-        // Wait for processing
-        _ <- IO.sleep(1.second)
 
         // Try completion even with syntax errors
         completionParams = CompletionParams(

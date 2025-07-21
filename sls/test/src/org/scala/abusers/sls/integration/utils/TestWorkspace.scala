@@ -28,6 +28,7 @@ object TestWorkspace {
       _       <- createMillVersion(tempDir).toResource
       _       <- createBuildMill(tempDir).toResource
       _       <- createSourceFiles(tempDir).toResource
+      _       <- copyMillExecutable(tempDir).toResource
       sourceFiles = Map(
         "Main.scala" -> tempDir / "app" / "src" / "Main.scala",
         "Utils.scala" -> tempDir / "app" / "src" / "Utils.scala"
@@ -41,6 +42,7 @@ object TestWorkspace {
       _       <- createMillVersion(tempDir).toResource
       _       <- createMultiModuleBuild(tempDir).toResource
       _       <- createMultiModuleSource(tempDir).toResource
+      _       <- copyMillExecutable(tempDir).toResource
       sourceFiles = Map(
         "core/Domain.scala" -> tempDir / "core" / "src" / "Domain.scala",
         "app/Main.scala" -> tempDir / "app" / "src" / "Main.scala"
@@ -149,5 +151,40 @@ object TestWorkspace {
       Files[IO].createDirectories(appDir) *>
       fs2.Stream.emit(domainContent).through(fs2.text.utf8.encode).through(Files[IO].writeAll(coreDir / "Domain.scala")).compile.drain *>
       fs2.Stream.emit(mainContent).through(fs2.text.utf8.encode).through(Files[IO].writeAll(appDir / "Main.scala")).compile.drain
+  }
+
+  private def copyMillExecutable(root: Path): IO[Unit] = {
+    // Find the project root by traversing upwards from the current directory
+    def findProjectRoot(currentPath: Path): IO[Path] = {
+      val millFile = currentPath / "mill"
+      for {
+        exists <- Files[IO].exists(millFile)
+        isRegularFile <- if (exists) Files[IO].isRegularFile(millFile) else IO.pure(false)
+        result <- if (exists && isRegularFile) {
+          IO.pure(currentPath)
+        } else {
+          val parent = currentPath.parent
+          parent match {
+            case Some(p) => findProjectRoot(p)
+            case None => IO.raiseError(new RuntimeException("Could not find mill executable in project hierarchy"))
+          }
+        }
+      } yield result
+    }
+    
+    for {
+      currentDir <- IO.pure(Path.fromNioPath(java.nio.file.Paths.get(System.getProperty("user.dir"))))
+      projectRoot <- findProjectRoot(currentDir)
+      millSource = projectRoot / "mill"
+      millTarget = root / "mill"
+      _ <- Files[IO].copy(millSource, millTarget)
+      // Make the mill file executable
+      _ <- IO {
+        import java.nio.file.Files as JFiles
+        import java.nio.file.attribute.PosixFilePermission.*
+        val perms = java.util.Set.of(OWNER_READ, OWNER_WRITE, OWNER_EXECUTE, GROUP_READ, GROUP_EXECUTE, OTHERS_READ, OTHERS_EXECUTE)
+        JFiles.setPosixFilePermissions(millTarget.toNioPath, perms)
+      }
+    } yield ()
   }
 }

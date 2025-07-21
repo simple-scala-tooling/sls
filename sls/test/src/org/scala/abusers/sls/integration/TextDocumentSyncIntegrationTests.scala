@@ -135,7 +135,7 @@ object TextDocumentSyncIntegrationTests extends LSPIntegrationTestSuite {
         _ <- openDocument(ctx.server, fileUri, invalidContent)
 
         // Wait a bit for debounced diagnostics
-        _ <- IO.sleep(500.millis)
+        _ <- IO.sleep(1000.millis)
 
         // Check if diagnostics were published
         diagnostics <- ctx.client.getPublishedDiagnostics
