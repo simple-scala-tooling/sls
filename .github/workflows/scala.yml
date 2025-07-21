@@ -21,10 +21,9 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - name: Set up JDK 21
-      uses: actions/setup-java@v4
-      with:
-        java-version: '21'
-        distribution: 'temurin'
+    - name: Install Nix
+      uses: cachix/install-nix-action@v31
+    - name: Wait for bloop server to start
+      run: sleep 5
     - name: Run tests
-      run: ./mill _.test
+      run: nix develop --command ./mill _.test

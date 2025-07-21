@@ -19,7 +19,10 @@
       perSystem = { system, config, pkgs, ... }:
         {
           devShells.default = pkgs.mkShell {
-            packages = [ pkgs.jdk21 ];
+            packages = [
+              pkgs.jdk21
+              pkgs.bloop
+            ];
             inputsFrom = [
               config.treefmt.build.devShell
             ];
