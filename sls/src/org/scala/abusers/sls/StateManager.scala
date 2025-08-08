@@ -5,6 +5,7 @@ import cats.effect.std.Mutex
 import cats.effect.IO
 
 import java.net.URI
+import bsp.DependencyModule.DependencyModuleMavenDependencyModule
 
 object StateManager {
 
@@ -27,6 +28,8 @@ class StateManager(
     bspStateManager: BspStateManager,
     mutex: Mutex[IO],
 ) {
+  // Add module state manager to track files from our project
+  // Add external Dependency state manager to track navigation in unpacked sources of external dependencies
   def didOpen(params: lsp.DidOpenTextDocumentParams): IO[Unit] =
     mutex.lock.surround {
       textDocumentSyncManager.didOpen(params) *> bspStateManager.didOpen(lspClient, params)
@@ -63,6 +66,11 @@ class StateManager(
   def getBuildTargetInformation(uri: URI): IO[ScalaBuildTargetInformation] =
     mutex.lock.surround {
       bspStateManager.get(uri)
+    }
+
+  def getDependencyInfo(uri: URI): IO[Option[DependencyModuleMavenDependencyModule]] =
+    mutex.lock.surround {
+      bspStateManager.getMavenDependency(uri)
     }
 
   def importBuild: IO[Unit] =

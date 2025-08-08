@@ -24,7 +24,7 @@ trait CommonScalaModule extends ScalaModule with ScalafixModule {
     ) ++ super.repositoriesTask()
   }
 
-  def scalaVersion = "3.7.2-RC1-bin-20250616-61d9887-NIGHTLY"
+  def scalaVersion = "3.7.1"
   def scalacOptions = Seq("-no-indent", "-Wunused:all")
 }
 
@@ -34,6 +34,20 @@ object slsSmithy extends CommonScalaModule with Smithy4sModule {
     ivy"com.disneystreaming.smithy4s::smithy4s-core:${smithy4sVersion()}",
     ivy"tech.neander:jsonrpclib-smithy:$jsonrpcVersion",
     ivy"io.github.simple-scala-tooling:lsp-smithy-definitions:1f4b6e9",
+  )
+}
+
+object tastyPresentationCompiler extends CommonScalaModule {
+
+  def moduleDeps: Seq[JavaModule] = Seq(slsSmithy)
+
+  override def scalacOptions: Target[Seq[String]] = super.scalacOptions() :+ "-experimental"
+
+  def ivyDeps = Agg(
+    ivy"org.scala-lang::scala3-tasty-inspector:${scalaVersion()}",
+    ivy"org.scala-lang::scala3-compiler:${scalaVersion()}",
+    ivy"org.scala-lang::scala3-library:${scalaVersion()}",
+    ivy"org.scalameta:mtags-interfaces:1.6.1-SNAPSHOT"
   )
 }
 
@@ -52,10 +66,11 @@ object sls extends CommonScalaModule {
     ivy"ch.qos.logback:logback-classic:1.4.14",
     ivy"com.lihaoyi::os-lib:0.11.4",
     ivy"org.polyvariant.smithy4s-bsp::bsp4s:0.5.0",
-    ivy"org.scalameta:mtags-interfaces:1.5.1",
+    ivy"org.scalameta:mtags-interfaces:1.6.1-SNAPSHOT",
     ivy"com.evolution::scache:5.1.2",
     ivy"org.typelevel::cats-parse:1.1.0",
-    ivy"io.get-coursier:interface:1.0.28"
+    ivy"io.get-coursier:interface:1.0.28",
+    ivy"de.lhns::fs2-compress-zip:2.3.0"
   )
 
   object test extends ScalaTests {

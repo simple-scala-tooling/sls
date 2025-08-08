@@ -12,6 +12,11 @@ import org.scala.abusers.pc.ScalaVersion
 import org.scala.abusers.sls.LoggingUtils.*
 
 import java.net.URI
+import bsp.DependencySourcesParams
+import bsp.DependencyModulesParams
+import bsp.BuildServerOperation.BuildTargetDependencyModules
+import org.scala.abusers.sls.NioConverter.asNio
+import bsp.DependencyModule.DependencyModuleMavenDependencyModule
 
 type ScalaBuildTargetInformation = (scalacOptions: ScalacOptionsItem, buildTarget: BuildTargetScalaBuildTarget)
 
@@ -34,7 +39,8 @@ object BspStateManager {
     for {
       sourcesToTargets <- AtomicCell[IO].of(Map[URI, ScalaBuildTargetInformation]())
       buildTargets     <- Ref.of[IO, Set[ScalaBuildTargetInformation]](Set.empty)
-    } yield BspStateManager(lspClient, bspServer, sourcesToTargets, buildTargets)
+      classJarsToDependencies <- AtomicCell[IO].of(Map.empty[URI, DependencyModuleMavenDependencyModule])
+    } yield BspStateManager(lspClient, bspServer, sourcesToTargets, buildTargets, classJarsToDependencies)
 }
 
 /** Class responsible for tracking and handling map between file and target we want to compile it against
@@ -48,14 +54,26 @@ class BspStateManager(
     val bspServer: BuildServer,
     sourcesToTargets: AtomicCell[IO, Map[URI, ScalaBuildTargetInformation]],
     targets: Ref[IO, Set[ScalaBuildTargetInformation]],
+    classJarsToDependencies: AtomicCell[IO, Map[URI, DependencyModuleMavenDependencyModule]]
 ) {
   import ScalaBuildTargetInformation.*
+
+  def getMavenDependency(uri: URI): IO[Option[DependencyModuleMavenDependencyModule]] =
+    classJarsToDependencies.get.map(_.get(uri))
 
   def importBuild =
     for {
       _             <- lspClient.logMessage("Starting build import.") // in the future this should be a task with progress
       importedBuild <- getBuildInformation(bspServer)
       _ <- bspServer.generic.buildTargetCompile(CompileParams(targets = importedBuild.map(_.buildTarget.id).toList))
+      dependencies <- bspServer.generic.buildTargetDependencyModules(
+        DependencyModulesParams(importedBuild.map(_.buildTarget.id).toList)
+      )
+      _ <- classJarsToDependencies.set(
+        dependencies.items.flatMap(_.modules).flatMap(_.project.maven).flatMap { item =>
+          item.data.artifacts.find(_.classifier.isEmpty).map(_.uri.asNio -> item)
+        }.toMap
+      )
       _ <- targets.set(importedBuild)
       _ <- lspClient.logMessage("Build import finished.")
     } yield ()
