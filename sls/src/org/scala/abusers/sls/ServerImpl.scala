@@ -35,13 +35,15 @@ import LoggingUtils.*
 import ScalaBuildTargetInformation.*
 
 class ServerImpl(
-    stateManager: StateManager,
     pcProvider: PresentationCompilerProvider,
     cancelTokens: IOCancelTokens,
     diagnosticManager: DiagnosticManager,
     steward: ResourceSupervisor[IO],
     bspClientDeferred: Deferred[IO, BuildServer],
-    lspClient: SlsLanguageClient[IO]
+    lspClient: SlsLanguageClient[IO],
+    computationQueue: ComputationQueue,
+    textDocumentSyncManager: TextDocumentSyncManager,
+    bspStateManager: BspStateManager,
 ) extends SlsLanguageServer[IO] {
 
   /* There can only be one client for one language-server */
@@ -76,57 +78,61 @@ class ServerImpl(
     )).guaranteeCase(s => lspClient.logMessage(s"closing initalize with $s"))
   }
 
-  def initialized(params: lsp.InitializedParams): IO[Unit] = stateManager.importBuild
-  def textDocumentCompletionOp(params: lsp.CompletionParams): IO[lsp.TextDocumentCompletionOpOutput] = handleCompletion(
-    params
-  )
-  def textDocumentDefinitionOp(params: lsp.DefinitionParams): IO[lsp.TextDocumentDefinitionOpOutput] = handleDefinition(
-    params
-  )
+  def initialized(params: lsp.InitializedParams): IO[Unit] = computationQueue.synchronously {
+    bspStateManager.importBuild
+  }
+
+  def textDocumentCompletionOp(params: lsp.CompletionParams): IO[lsp.TextDocumentCompletionOpOutput] = handleCompletion(params)
+  def textDocumentDefinitionOp(params: lsp.DefinitionParams): IO[lsp.TextDocumentDefinitionOpOutput] = handleDefinition(params)
   def textDocumentDidChange(params: lsp.DidChangeTextDocumentParams): IO[Unit]        = handleDidChange(params)
   def textDocumentDidClose(params: lsp.DidCloseTextDocumentParams): IO[Unit]          = handleDidClose(params)
   def textDocumentDidOpen(params: lsp.DidOpenTextDocumentParams): IO[Unit]            = handleDidOpen(params)
   def textDocumentDidSave(params: lsp.DidSaveTextDocumentParams): IO[Unit]            = handleDidSave(params)
   def textDocumentHoverOp(params: lsp.HoverParams): IO[lsp.TextDocumentHoverOpOutput] = handleHover(params)
-  def textDocumentInlayHintOp(params: lsp.InlayHintParams): IO[lsp.TextDocumentInlayHintOpOutput] = handleInlayHints(
-    params
-  )
-  def textDocumentSignatureHelpOp(params: lsp.SignatureHelpParams): IO[lsp.TextDocumentSignatureHelpOpOutput] =
-    handleSignatureHelp(params)
+  def textDocumentInlayHintOp(params: lsp.InlayHintParams): IO[lsp.TextDocumentInlayHintOpOutput] = handleInlayHints(params)
+  def textDocumentSignatureHelpOp(params: lsp.SignatureHelpParams): IO[lsp.TextDocumentSignatureHelpOpOutput] = handleSignatureHelp(params)
 
   // // TODO: goto type definition with container types
   def handleCompletion(params: lsp.CompletionParams) =
-    offsetParamsRequest(params)(_.complete).map { result =>
-      lsp.TextDocumentCompletionOpOutput(
-        convert[lsp4j.CompletionList, lsp.ListCompletionUnion](result).some
-      )
+    computationQueue.synchronously {
+      offsetParamsRequest(params)(_.complete).map { result =>
+        lsp.TextDocumentCompletionOpOutput(
+          convert[lsp4j.CompletionList, lsp.ListCompletionUnion](result).some
+        )
+      }
     }
 
   def handleHover(params: lsp.HoverParams) =
-    offsetParamsRequest(params)(_.hover).map { result =>
-      lsp.TextDocumentHoverOpOutput(
-        result.toScala.map(hoverSig => convert[lsp4j.Hover, lsp.Hover](hoverSig.toLsp()))
-      )
+    computationQueue.synchronously {
+      offsetParamsRequest(params)(_.hover).map { result =>
+        lsp.TextDocumentHoverOpOutput(
+          result.toScala.map(hoverSig => convert[lsp4j.Hover, lsp.Hover](hoverSig.toLsp()))
+        )
+      }
     }
 
   def handleSignatureHelp(params: lsp.SignatureHelpParams) =
-    offsetParamsRequest(params)(_.signatureHelp).map { result =>
-      lsp.TextDocumentSignatureHelpOpOutput(
-        convert[lsp4j.SignatureHelp, lsp.SignatureHelp](result).some
-      )
+    computationQueue.synchronously {
+      offsetParamsRequest(params)(_.signatureHelp).map { result =>
+        lsp.TextDocumentSignatureHelpOpOutput(
+          convert[lsp4j.SignatureHelp, lsp.SignatureHelp](result).some
+        )
+      }
     }
 
   def handleDefinition(params: lsp.DefinitionParams) =
-    offsetParamsRequest(params)(_.definition).map { result =>
-      lsp.TextDocumentDefinitionOpOutput(
-        result
-          .locations()
-          .asScala
-          .headOption
-          .map(definition =>
-            convert[lsp4j.Location, lsp.DefinitionOrListOfDefinitionLink](definition)
-          ) // FIXME: missing completion on lsp.TextDocumentDefinitionOpOutput
-      )
+    computationQueue.synchronously {
+      offsetParamsRequest(params)(_.definition).map { result =>
+        lsp.TextDocumentDefinitionOpOutput(
+          result
+            .locations()
+            .asScala
+            .headOption
+            .map(definition =>
+              convert[lsp4j.Location, lsp.DefinitionOrListOfDefinitionLink](definition)
+            ) // FIXME: missing completion on lsp.TextDocumentDefinitionOpOutput
+        )
+      }
     }
 
   def virtualFileParams(uri0: URI, content: String, token0: CancelToken): VirtualFileParams = new VirtualFileParams {
@@ -137,12 +143,12 @@ class ServerImpl(
 
   given Schema[List[lsp.InlayHint]] = Schema.list(lsp.InlayHint.schema)
 
-  def handleInlayHints(params: lsp.InlayHintParams) = {
+  def handleInlayHints(params: lsp.InlayHintParams) = computationQueue.synchronously {
     val uri0 = summon[WithURI[lsp.InlayHintParams]].uri(params)
 
     cancelTokens.mkCancelToken.use { token0 =>
       for {
-        docState <- stateManager.getDocumentState(uri0)
+        docState <- textDocumentSyncManager.get(uri0)
         inalyHintsParams = new InlayHintsParams {
           import docState.*
           def implicitConversions(): Boolean     = true
@@ -166,12 +172,12 @@ class ServerImpl(
 
   private def offsetParamsRequest[Params: PositionWithURI, Result](params: Params)(
       thunk: PresentationCompiler => OffsetParams => CompletableFuture[Result]
-  ): IO[Result] = { // TODO Completion on context bound inserts []
+  )(using SynchronizedState): IO[Result] = { // TODO Completion on context bound inserts []
     val uri      = summon[WithURI[Params]].uri(params)
     val position = summon[WithPosition[Params]].position(params)
     cancelTokens.mkCancelToken.use { token =>
       for {
-        docState <- stateManager.getDocumentState(uri)
+        docState <- textDocumentSyncManager.get(uri)
         offsetParams = toOffsetParams(position, docState, token)
         result <- pcParamsRequest(params, offsetParams)(thunk)
       } yield result
@@ -180,20 +186,34 @@ class ServerImpl(
 
   private def pcParamsRequest[Params: WithURI, Result, PcParams](params: Params, pcParams: PcParams)(
       thunk: PresentationCompiler => PcParams => CompletableFuture[Result]
-  ): IO[Result] = { // TODO Completion on context bound inserts []
+  )(using SynchronizedState): IO[Result] = { // TODO Completion on context bound inserts []
     val uri = summon[WithURI[Params]].uri(params)
     for {
-      info   <- stateManager.getBuildTargetInformation(uri)
+      info   <- bspStateManager.get(uri)
       pc     <- pcProvider.get(info)
       result <- IO.fromCompletableFuture(IO(thunk(pc)(pcParams)))
     } yield result
   }
 
-  def handleDidSave(params: lsp.DidSaveTextDocumentParams) = stateManager.didSave(params)
+  def handleDidSave(params: lsp.DidSaveTextDocumentParams) =
+    computationQueue.synchronously {
+      for {
+        _    <- textDocumentSyncManager.didSave(params)
+        info <- bspStateManager.get(URI(params.textDocument.uri))
+      } yield info
+    }.flatMap { info =>
+      bspStateManager.bspServer.generic.buildTargetCompile(bsp.CompileParams(targets = List(info.buildTarget.id))) // we need to handle the case:
+      // User saves, compilation starts, we don't want to block it, completion starts, during completion compilation ends new classfiles emmited. We need to know which classfiles are new.
+      // I hardly believe that we should use straight to jar compilation for that
+    }.void
 
-  def handleDidOpen(params: lsp.DidOpenTextDocumentParams) = stateManager.didOpen(params)
+  def handleDidOpen(params: lsp.DidOpenTextDocumentParams) = computationQueue.synchronously {
+    textDocumentSyncManager.didOpen(params) *> bspStateManager.didOpen(lspClient, params)
+  }
 
-  def handleDidClose(params: lsp.DidCloseTextDocumentParams) = stateManager.didClose(params)
+  def handleDidClose(params: lsp.DidCloseTextDocumentParams) = computationQueue.synchronously {
+    textDocumentSyncManager.didClose(params)
+  }
 
   implicit val positionTransformer: Transformer[lsp4j.Position, lsp.Position] =
     Transformer.define[lsp4j.Position, lsp.Position].enableBeanGetters.buildTransformer
@@ -213,31 +233,35 @@ class ServerImpl(
       * they are triggered by notification and AFAIK, LSP cancellation only works for requests.
       */
     def pcDiagnostics(info: ScalaBuildTargetInformation, uri: URI): IO[Unit] =
-      cancelTokens.mkCancelToken.use { token =>
-        for {
-          _            <- lspClient.logDebug("Getting PresentationCompiler diagnostics")
-          textDocument <- stateManager.getDocumentState(uri)
-          pc           <- pcProvider.get(info)
-          params = virtualFileParams(uri, textDocument.content, token)
-          diags <- IO.fromCompletableFuture(IO(pc.didChange(params)))
-          lspDiags = diags
-            .into[List[lsp.Diagnostic]]
-            .withFieldRenamed(_.everyItem.getRange, _.everyItem.range)
-            .withFieldRenamed(_.everyItem.getMessage, _.everyItem.message)
-            .enableOptionDefaultsToNone
-            .transform
-          _       <- diagnosticManager.didChange(lspClient, uri.toString, lspDiags)
-        } yield ()
+      computationQueue.synchronously {
+        cancelTokens.mkCancelToken.use { token =>
+          for {
+            _            <- lspClient.logDebug("Getting PresentationCompiler diagnostics")
+            textDocument <- textDocumentSyncManager.get(uri)
+            pc           <- pcProvider.get(info)
+            params = virtualFileParams(uri, textDocument.content, token)
+            diags <- IO.fromCompletableFuture(IO(pc.didChange(params)))
+            lspDiags = diags
+              .into[List[lsp.Diagnostic]]
+              .withFieldRenamed(_.everyItem.getRange, _.everyItem.range)
+              .withFieldRenamed(_.everyItem.getMessage, _.everyItem.message)
+              .enableOptionDefaultsToNone
+              .transform
+            _       <- diagnosticManager.didChange(lspClient, uri.toString, lspDiags)
+          } yield ()
+        }
       }
 
-    params =>
+    params => computationQueue.synchronously {
       for {
-        _       <- stateManager.didChange(params)
+        _       <- textDocumentSyncManager.didChange(params)
         _       <- lspClient.logDebug("Updated DocumentState")
         uri = URI(params.textDocument.uri)
-        info <- stateManager.getBuildTargetInformation(uri)
-        _    <- if isSupported(info) then debounce.debounce(pcDiagnostics(info, uri)) else IO.unit
-      } yield ()
+        info <- bspStateManager.get(uri)
+      } yield (uri, info)
+    }.flatMap { (uri, info) =>
+      if isSupported(info) then debounce.debounce(pcDiagnostics(info, uri)) else IO.unit
+    }
   }
 
   private def serverCapabilities: lsp.ServerCapabilities =

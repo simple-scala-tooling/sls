@@ -66,8 +66,8 @@ object SimpleScalaServer extends IOApp.Simple {
       textDocumentSync  <- TextDocumentSyncManager.instance.toResource
       bspClientDeferred <- Deferred[IO, BuildServer].toResource
       bspStateManager   <- BspStateManager.instance(lspClient, BuildServer.suspend(bspClientDeferred.get)).toResource
-      stateManager      <- StateManager.instance(lspClient, textDocumentSync, bspStateManager).toResource
       cancelTokens      <- IOCancelTokens.instance
       diagnosticManager <- DiagnosticManager.instance.toResource
-    } yield ServerImpl(stateManager, pcProvider, cancelTokens, diagnosticManager, steward, bspClientDeferred, lspClient)
+      computationQueue  <- ComputationQueue.instance.toResource
+    } yield ServerImpl(pcProvider, cancelTokens, diagnosticManager, steward, bspClientDeferred, lspClient, computationQueue, textDocumentSync, bspStateManager)
 }

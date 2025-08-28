@@ -47,10 +47,7 @@ def bspClientHandler(lspClient: SlsLanguageClient[IO], diagnosticManager: Diagno
     .serverEndpoints(
       new BuildClient[IO] {
 
-        private def notify(msg: String) =
-          lspClient.windowShowMessage(
-            lsp.ShowMessageParams(_type = lsp.MessageType.INFO, message = msg)
-          )
+        
 
         def onBuildLogMessage(input: LogMessageParams): IO[Unit] = IO.unit // we want some logging to file here
 

@@ -13,6 +13,7 @@ import java.net.URLClassLoader
 import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 import scala.meta.pc.PresentationCompiler
+import org.scala.abusers.sls.SynchronizedState
 
 class PresentationCompilerProvider(
     serviceLoader: BlockingServiceLoader,
@@ -55,7 +56,7 @@ class PresentationCompilerProvider(
       pc <- serviceLoader.load(classOf[PresentationCompiler], PresentationCompilerProvider.classname, classloader)
     } yield pc.newInstance("random", projectClasspath.map(_.toNIO).asJava, scalacOptions.asJava)
 
-  def get(info: ScalaBuildTargetInformation): IO[PresentationCompiler] =
+  def get(using SynchronizedState)(info: ScalaBuildTargetInformation): IO[PresentationCompiler] =
     compilers.getOrUpdate(info.buildTarget.id)(createPC(info.scalaVersion, info.classpath, info.compilerOptions))
 }
 
