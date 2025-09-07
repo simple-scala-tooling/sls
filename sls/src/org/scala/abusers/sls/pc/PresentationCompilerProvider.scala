@@ -56,7 +56,7 @@ class PresentationCompilerProvider(
       pc <- serviceLoader.load(classOf[PresentationCompiler], PresentationCompilerProvider.classname, classloader)
     } yield pc.newInstance("random", projectClasspath.map(_.toNIO).asJava, scalacOptions.asJava)
 
-  def get(using SynchronizedState)(info: ScalaBuildTargetInformation): IO[PresentationCompiler] =
+  def get(info: ScalaBuildTargetInformation)(using SynchronizedState): IO[PresentationCompiler] =
     compilers.getOrUpdate(info.buildTarget.id)(createPC(info.scalaVersion, info.classpath, info.compilerOptions))
 }
 
