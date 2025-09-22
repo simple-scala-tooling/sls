@@ -4,7 +4,6 @@ import cats.effect.*
 import cats.syntax.all.*
 import jsonrpclib.fs2.*
 import jsonrpclib.smithy4sinterop.ClientStub
-import jsonrpclib.CallId
 import org.scala.abusers.pc.IOCancelTokens
 import org.scala.abusers.pc.PresentationCompilerProvider
 
@@ -27,14 +26,12 @@ object BuildServer {
 object SimpleScalaServer extends IOApp.Simple {
   import jsonrpclib.smithy4sinterop.ServerEndpoints
 
-  val cancelEndpoint = CancelTemplate.make[CallId]("$/cancel", identity, identity)
-
   def run: IO[Unit] =
     runResource.useForever
 
   private def runResource =
     for {
-      fs2Channel           <- FS2Channel.resource[IO](cancelTemplate = cancelEndpoint.some)
+      fs2Channel           <- FS2Channel.resource[IO](cancelTemplate = LSPCancelRequest.cancelTemplate.some)
       client               <- ClientStub(SlsLanguageClient, fs2Channel).liftTo[IO].toResource
       serverImpl           <- server(client)
       serverEndpoints      <- ServerEndpoints(serverImpl).liftTo[IO].toResource
