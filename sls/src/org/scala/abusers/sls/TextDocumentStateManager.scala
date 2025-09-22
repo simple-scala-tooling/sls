@@ -40,16 +40,16 @@ object TextDocumentSyncManager {
 
 class TextDocumentSyncManager(val documents: AtomicCell[IO, Map[URI, DocumentState]]) {
 
-  def didOpen(params: lsp.DidOpenTextDocumentParams): IO[Unit] =
+  def didOpen(params: lsp.DidOpenTextDocumentParams)(using SynchronizedState): IO[Unit] =
     getOrCreateDocument(URI.create(params.textDocument.uri), params.textDocument.text.some).void
 
-  def didChange(params: lsp.DidChangeTextDocumentParams) =
+  def didChange(params: lsp.DidChangeTextDocumentParams)(using SynchronizedState) =
     onTextEditReceived(URI(params.textDocument.uri), params.contentChanges)
 
-  def didClose(params: lsp.DidCloseTextDocumentParams): IO[Unit] =
+  def didClose(params: lsp.DidCloseTextDocumentParams)(using SynchronizedState): IO[Unit] =
     documents.update(_.removed(URI(params.textDocument.uri)))
 
-  def didSave(params: lsp.DidSaveTextDocumentParams): IO[Unit] =
+  def didSave(params: lsp.DidSaveTextDocumentParams)(using SynchronizedState): IO[Unit] =
     getOrCreateDocument(URI(params.textDocument.uri), params.text).void
 
   private def onTextEditReceived(uri: URI, edits: List[lsp.TextDocumentContentChangeEvent]): IO[Unit] =
@@ -58,7 +58,7 @@ class TextDocumentSyncManager(val documents: AtomicCell[IO, Map[URI, DocumentSta
       _   <- documents.update(_.updated(uri, doc.processEdits(edits)))
     } yield ()
 
-  def get(uri: URI): IO[DocumentState] =
+  def get(uri: URI)(using SynchronizedState): IO[DocumentState] =
     documents.get.map(_.get(uri)).flatMap(IO.fromOption(_)(IllegalStateException()))
 
   private def getOrCreateDocument(uri: URI, content: Option[String]): IO[DocumentState] =

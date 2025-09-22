@@ -108,12 +108,12 @@ class BspStateManager(
     *
     * We want to fail fast if this is not the case because it is a way bigger problem that we may hide
     */
-  def get(uri: URI): IO[ScalaBuildTargetInformation] =
+  def get(uri: URI)(using SynchronizedState): IO[ScalaBuildTargetInformation] =
     sourcesToTargets.get.map { state =>
       state.getOrElse(uri, throw new IllegalStateException("Get should always be called after didOpen"))
     }
 
-  def didOpen(client: SlsLanguageClient[IO], params: lsp.DidOpenTextDocumentParams): IO[Unit] = {
+  def didOpen(client: SlsLanguageClient[IO], params: lsp.DidOpenTextDocumentParams)(using SynchronizedState): IO[Unit] = {
     val uri = URI.create(params.textDocument.uri)
     sourcesToTargets.evalUpdate(state =>
       for {
