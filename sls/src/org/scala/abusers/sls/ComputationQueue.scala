@@ -2,6 +2,7 @@ package org.scala.abusers.sls
 
 import cats.effect.IO
 import cats.effect.std.Semaphore
+import org.typelevel.otel4s.trace.Tracer
 
 sealed trait SynchronizedState
 
@@ -12,7 +13,7 @@ trait ComputationQueue {
 
 class ComputationQueueImpl(semaphore: Semaphore[IO]) extends ComputationQueue {
   def synchronously[A](computation: SynchronizedState ?=> IO[A]): IO[A] = {
-    semaphore.permit.use(_ => computation)
+    semaphore.permit.surround(computation)
   }
 }
 

@@ -7,6 +7,8 @@ import jsonrpclib.smithy4sinterop.ClientStub
 import jsonrpclib.CallId
 import org.scala.abusers.pc.IOCancelTokens
 import org.scala.abusers.pc.PresentationCompilerProvider
+import org.typelevel.otel4s.trace.Tracer
+import org.typelevel.otel4s.metrics.Meter
 
 case class BuildServer(
     generic: bsp.BuildServer[IO],
@@ -24,21 +26,33 @@ object BuildServer {
   )
 }
 
-object SimpleScalaServer extends IOApp.Simple {
+
+private case class LSPCancelRequest(id: CallId)
+
+object LSPCancelRequest {
+  import io.circe.Codec
+  given Codec[LSPCancelRequest] = Codec.derived[LSPCancelRequest]
+
+  val cancelTemplate: CancelTemplate = CancelTemplate
+    .make[LSPCancelRequest](
+      "$/cancelRequest",
+      _.id,
+      LSPCancelRequest(_)
+    )
+}
+
+object SimpleScalaServer extends org.scala.abusers.profiling.runtime.ProfilingIOApp {
   import jsonrpclib.smithy4sinterop.ServerEndpoints
 
-  val cancelEndpoint = CancelTemplate.make[CallId]("$/cancel", identity, identity)
+  override def applicationName: String = "simple-language-server"
 
-  def run: IO[Unit] =
-    runResource.useForever
-
-  private def runResource =
+  override def program(using meter: Meter[IO], tracer: Tracer[IO]) =
     for {
-      fs2Channel           <- FS2Channel.resource[IO](cancelTemplate = cancelEndpoint.some)
-      client               <- ClientStub(SlsLanguageClient, fs2Channel).liftTo[IO].toResource
-      serverImpl           <- server(client)
-      serverEndpoints      <- ServerEndpoints(serverImpl).liftTo[IO].toResource
-      channelWithEndpoints <- fs2Channel.withEndpoints(serverEndpoints)
+      fs2Channel              <- FS2Channel.resource[IO](cancelTemplate = LSPCancelRequest.cancelTemplate.some)
+      client                  <- ClientStub(SlsLanguageClient, fs2Channel).liftTo[IO].toResource
+      serverImpl              <- server(client)
+      serverEndpoints         <- ServerEndpoints(serverImpl).liftTo[IO].toResource
+      channelWithEndpoints    <- fs2Channel.withEndpoints(serverEndpoints)
       _ <- fs2.Stream // Refactor to be single threaded
         .never[IO]
         .concurrently(
@@ -59,7 +73,7 @@ object SimpleScalaServer extends IOApp.Simple {
         .background
     } yield ()
 
-  private def server(lspClient: SlsLanguageClient[IO]): Resource[IO, ServerImpl] =
+  private def server(lspClient: SlsLanguageClient[IO])(using Tracer[IO], Meter[IO]): Resource[IO, ServerImpl] =
     for {
       steward           <- ResourceSupervisor[IO]
       pcProvider        <- PresentationCompilerProvider.instance.toResource
