@@ -6,6 +6,8 @@ import jsonrpclib.fs2.*
 import jsonrpclib.smithy4sinterop.ClientStub
 import org.scala.abusers.pc.IOCancelTokens
 import org.scala.abusers.pc.PresentationCompilerProvider
+import org.typelevel.otel4s.trace.Tracer
+import org.typelevel.otel4s.metrics.Meter
 
 case class BuildServer(
     generic: bsp.BuildServer[IO],
@@ -23,19 +25,18 @@ object BuildServer {
   )
 }
 
-object SimpleScalaServer extends IOApp.Simple {
+object SimpleScalaServer extends org.scala.abusers.profiling.runtime.ProfilingIOApp {
   import jsonrpclib.smithy4sinterop.ServerEndpoints
 
-  def run: IO[Unit] =
-    runResource.useForever
+  override def applicationName: String = "simple-language-server"
 
-  private def runResource =
+  override def program(using meter: Meter[IO], tracer: Tracer[IO]) =
     for {
-      fs2Channel           <- FS2Channel.resource[IO](cancelTemplate = LSPCancelRequest.cancelTemplate.some)
-      client               <- ClientStub(SlsLanguageClient, fs2Channel).liftTo[IO].toResource
-      serverImpl           <- server(client)
-      serverEndpoints      <- ServerEndpoints(serverImpl).liftTo[IO].toResource
-      channelWithEndpoints <- fs2Channel.withEndpoints(serverEndpoints)
+      fs2Channel              <- FS2Channel.resource[IO](cancelTemplate = LSPCancelRequest.cancelTemplate.some)
+      client                  <- ClientStub(SlsLanguageClient, fs2Channel).liftTo[IO].toResource
+      serverImpl              <- server(client)
+      serverEndpoints         <- ServerEndpoints(serverImpl).liftTo[IO].toResource
+      channelWithEndpoints    <- fs2Channel.withEndpoints(serverEndpoints)
       _ <- fs2.Stream // Refactor to be single threaded
         .never[IO]
         .concurrently(
@@ -56,7 +57,7 @@ object SimpleScalaServer extends IOApp.Simple {
         .background
     } yield ()
 
-  private def server(lspClient: SlsLanguageClient[IO]): Resource[IO, ServerImpl] =
+  private def server(lspClient: SlsLanguageClient[IO])(using Tracer[IO], Meter[IO]): Resource[IO, ServerImpl] =
     for {
       steward           <- ResourceSupervisor[IO]
       pcProvider        <- PresentationCompilerProvider.instance.toResource

@@ -1,3 +1,7 @@
+import mill.scalalib.publish.Developer
+import mill.scalalib.publish.VersionControl
+import mill.scalalib.publish.License
+import mill.scalalib.publish.PomSettings
 import mill.eval.Evaluator
 import smithy4s.codegen.LSP
 import com.goyeau.mill.scalafix.ScalafixModule
@@ -37,14 +41,37 @@ object slsSmithy extends CommonScalaModule with Smithy4sModule {
   )
 }
 
+object profilingRuntime extends CommonScalaModule with PublishModule {
+  def ivyDeps = Agg(
+    ivy"io.pyroscope:agent:2.1.2",
+    ivy"org.typelevel::cats-effect:3.6.3",
+    ivy"org.typelevel::otel4s-sdk:0.13.1",
+    ivy"org.typelevel::otel4s-sdk-exporter:0.13.1",
+    ivy"org.typelevel::otel4s-experimental-metrics:0.7.0",
+  )
+
+  def pomSettings: T[PomSettings] = PomSettings(
+    description = "A runtime with pyroscope profiling and OpenTelemetry tracing",
+    url = "",
+    licenses = Seq(License.`MPL-2.0`),
+    organization = "org.scala.abusers",
+    versionControl = VersionControl.github("simple-scala-tooling", "simple-language-server"),
+    developers = Seq(
+      Developer("rochala", "Jędrzej Rochala", url = "https://github.com/rochala")
+    )
+  )
+
+  def publishVersion: T[String] = "0.0.1-SNAPSHOT"
+}
+
 object sls extends CommonScalaModule {
 
   def mainClass = Some("org.scala.abusers.sls.SimpleScalaServer")
 
-  def moduleDeps: Seq[JavaModule] = Seq(slsSmithy)
+  def moduleDeps: Seq[JavaModule] = Seq(slsSmithy, profilingRuntime)
 
   def ivyDeps = Agg(
-    ivy"org.typelevel::cats-effect:3.6.2",
+    ivy"org.typelevel::cats-effect:3.6.3",
     ivy"co.fs2::fs2-io:3.13.0-M2",
     ivy"io.scalaland::chimney:1.8.1",
     ivy"io.scalaland::chimney-java-collections:1.8.1",
@@ -55,7 +82,12 @@ object sls extends CommonScalaModule {
     ivy"org.scalameta:mtags-interfaces:1.5.1",
     ivy"com.evolution::scache:5.1.2",
     ivy"org.typelevel::cats-parse:1.1.0",
-    ivy"io.get-coursier:interface:1.0.28"
+    ivy"io.get-coursier:interface:1.0.28",
+  )
+
+  def javacOptions = Seq(
+    "-Dotel.service.name=simple-language-server",
+    "-Dcats.effect.trackFiberContext=true"
   )
 
   object test extends ScalaTests {

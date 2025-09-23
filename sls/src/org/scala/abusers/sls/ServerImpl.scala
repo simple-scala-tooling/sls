@@ -33,6 +33,9 @@ import scala.meta.pc.VirtualFileParams
 
 import LoggingUtils.*
 import ScalaBuildTargetInformation.*
+import org.typelevel.otel4s.trace.Tracer
+import org.typelevel.otel4s.metrics.Meter
+
 
 class ServerImpl(
     pcProvider: PresentationCompilerProvider,
@@ -44,7 +47,7 @@ class ServerImpl(
     computationQueue: ComputationQueue,
     textDocumentSyncManager: TextDocumentSyncManager,
     bspStateManager: BspStateManager,
-) extends SlsLanguageServer[IO] {
+)(using Tracer[IO], Meter[IO]) extends SlsLanguageServer[IO] {
 
   /* There can only be one client for one language-server */
 
@@ -78,19 +81,27 @@ class ServerImpl(
     )).guaranteeCase(s => lspClient.logMessage(s"closing initalize with $s"))
   }
 
-  def initialized(params: lsp.InitializedParams): IO[Unit] = computationQueue.synchronously {
-    bspStateManager.importBuild
-  }
+  def initialized(params: lsp.InitializedParams): IO[Unit] =
+    computationQueue.synchronously { bspStateManager.importBuild }
 
-  def textDocumentCompletionOp(params: lsp.CompletionParams): IO[lsp.TextDocumentCompletionOpOutput] = handleCompletion(params)
-  def textDocumentDefinitionOp(params: lsp.DefinitionParams): IO[lsp.TextDocumentDefinitionOpOutput] = handleDefinition(params)
-  def textDocumentDidChange(params: lsp.DidChangeTextDocumentParams): IO[Unit]        = handleDidChange(params)
-  def textDocumentDidClose(params: lsp.DidCloseTextDocumentParams): IO[Unit]          = handleDidClose(params)
-  def textDocumentDidOpen(params: lsp.DidOpenTextDocumentParams): IO[Unit]            = handleDidOpen(params)
-  def textDocumentDidSave(params: lsp.DidSaveTextDocumentParams): IO[Unit]            = handleDidSave(params)
-  def textDocumentHoverOp(params: lsp.HoverParams): IO[lsp.TextDocumentHoverOpOutput] = handleHover(params)
-  def textDocumentInlayHintOp(params: lsp.InlayHintParams): IO[lsp.TextDocumentInlayHintOpOutput] = handleInlayHints(params)
-  def textDocumentSignatureHelpOp(params: lsp.SignatureHelpParams): IO[lsp.TextDocumentSignatureHelpOpOutput] = handleSignatureHelp(params)
+  def textDocumentCompletionOp(params: lsp.CompletionParams): IO[lsp.TextDocumentCompletionOpOutput] =
+    Tracer[IO].span("completion").surround(handleCompletion(params))
+  def textDocumentDefinitionOp(params: lsp.DefinitionParams): IO[lsp.TextDocumentDefinitionOpOutput] =
+    Tracer[IO].span("go-to-defintion").surround(handleDefinition(params))
+  def textDocumentDidChange(params: lsp.DidChangeTextDocumentParams): IO[Unit]        =
+    Tracer[IO].span("did-change").surround(handleDidChange(params))
+  def textDocumentDidClose(params: lsp.DidCloseTextDocumentParams): IO[Unit]          =
+    Tracer[IO].span("did-close").surround(handleDidClose(params))
+  def textDocumentDidOpen(params: lsp.DidOpenTextDocumentParams): IO[Unit]            =
+    Tracer[IO].span("did-open").surround(handleDidOpen(params))
+  def textDocumentDidSave(params: lsp.DidSaveTextDocumentParams): IO[Unit]            =
+    Tracer[IO].span("did-save").surround(handleDidSave(params))
+  def textDocumentHoverOp(params: lsp.HoverParams): IO[lsp.TextDocumentHoverOpOutput] =
+    Tracer[IO].span("hover").surround(handleHover(params))
+  def textDocumentInlayHintOp(params: lsp.InlayHintParams): IO[lsp.TextDocumentInlayHintOpOutput] =
+    Tracer[IO].span("inlay-hints").surround(handleInlayHints(params))
+  def textDocumentSignatureHelpOp(params: lsp.SignatureHelpParams): IO[lsp.TextDocumentSignatureHelpOpOutput] =
+    Tracer[IO].span("signature-help").surround(handleSignatureHelp(params))
 
   // // TODO: goto type definition with container types
   def handleCompletion(params: lsp.CompletionParams) =
@@ -226,7 +237,7 @@ class ServerImpl(
 
     def isSupported(info: ScalaBuildTargetInformation): Boolean = {
       import scala.math.Ordered.orderingToOrdered
-      info.scalaVersion > ScalaVersion("3.7.2")
+      info.scalaVersion > ScalaVersion("3.7.9")
     }
 
     /** We want to debounce compiler diagnostics as they are expensive to compute and we can't really cancel them as
