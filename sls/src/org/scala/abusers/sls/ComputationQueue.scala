@@ -12,7 +12,7 @@ trait ComputationQueue {
 
 class ComputationQueueImpl(semaphore: Semaphore[IO]) extends ComputationQueue {
   def synchronously[A](computation: SynchronizedState ?=> IO[A]): IO[A] = {
-    semaphore.permit.use(_ => computation(using new SynchronizedState {}))
+    semaphore.permit.use(_ => computation)
   }
 }
 
