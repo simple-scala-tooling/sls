@@ -35,6 +35,7 @@ import LoggingUtils.*
 import ScalaBuildTargetInformation.*
 import org.typelevel.otel4s.trace.Tracer
 import org.typelevel.otel4s.metrics.Meter
+import org.scala.abusers.profiling.runtime.ProfilingOps.*
 
 
 class ServerImpl(
@@ -85,23 +86,23 @@ class ServerImpl(
     computationQueue.synchronously { bspStateManager.importBuild }
 
   def textDocumentCompletionOp(params: lsp.CompletionParams): IO[lsp.TextDocumentCompletionOpOutput] =
-    Tracer[IO].span("completion").surround(handleCompletion(params))
+    Tracer[IO].span("completion").profilingSurround(handleCompletion(params))
   def textDocumentDefinitionOp(params: lsp.DefinitionParams): IO[lsp.TextDocumentDefinitionOpOutput] =
-    Tracer[IO].span("go-to-defintion").surround(handleDefinition(params))
+    Tracer[IO].span("go-to-defintion").profilingSurround(handleDefinition(params))
   def textDocumentDidChange(params: lsp.DidChangeTextDocumentParams): IO[Unit]        =
-    Tracer[IO].span("did-change").surround(handleDidChange(params))
+    Tracer[IO].span("did-change").profilingSurround(handleDidChange(params))
   def textDocumentDidClose(params: lsp.DidCloseTextDocumentParams): IO[Unit]          =
-    Tracer[IO].span("did-close").surround(handleDidClose(params))
+    Tracer[IO].span("did-close").profilingSurround(handleDidClose(params))
   def textDocumentDidOpen(params: lsp.DidOpenTextDocumentParams): IO[Unit]            =
-    Tracer[IO].span("did-open").surround(handleDidOpen(params))
+    Tracer[IO].span("did-open").profilingSurround(handleDidOpen(params))
   def textDocumentDidSave(params: lsp.DidSaveTextDocumentParams): IO[Unit]            =
-    Tracer[IO].span("did-save").surround(handleDidSave(params))
+    Tracer[IO].span("did-save").profilingSurround(handleDidSave(params))
   def textDocumentHoverOp(params: lsp.HoverParams): IO[lsp.TextDocumentHoverOpOutput] =
-    Tracer[IO].span("hover").surround(handleHover(params))
+    Tracer[IO].span("hover").profilingSurround(handleHover(params))
   def textDocumentInlayHintOp(params: lsp.InlayHintParams): IO[lsp.TextDocumentInlayHintOpOutput] =
-    Tracer[IO].span("inlay-hints").surround(handleInlayHints(params))
+    Tracer[IO].span("inlay-hints").profilingSurround(handleInlayHints(params))
   def textDocumentSignatureHelpOp(params: lsp.SignatureHelpParams): IO[lsp.TextDocumentSignatureHelpOpOutput] =
-    Tracer[IO].span("signature-help").surround(handleSignatureHelp(params))
+    Tracer[IO].span("signature-help").profilingSurround(handleSignatureHelp(params))
 
   // // TODO: goto type definition with container types
   def handleCompletion(params: lsp.CompletionParams) =
