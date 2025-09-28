@@ -7,13 +7,13 @@ import com.evolution.scache.ExpiringCache
 import coursierapi.*
 import org.scala.abusers.sls.ScalaBuildTargetInformation
 import org.scala.abusers.sls.ScalaBuildTargetInformation.*
+import org.scala.abusers.sls.SynchronizedState
 import os.Path
 
 import java.net.URLClassLoader
 import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 import scala.meta.pc.PresentationCompiler
-import org.scala.abusers.sls.SynchronizedState
 
 class PresentationCompilerProvider(
     serviceLoader: BlockingServiceLoader,

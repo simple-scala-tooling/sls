@@ -53,7 +53,7 @@ class BspStateManager(
 
   def importBuild =
     for {
-      _             <- lspClient.logMessage("Starting build import.") // in the future this should be a task with progress
+      _ <- lspClient.logMessage("Starting build import.") // in the future this should be a task with progress
       importedBuild <- getBuildInformation(bspServer)
       _ <- bspServer.generic.buildTargetCompile(CompileParams(targets = importedBuild.map(_.buildTarget.id).toList))
       _ <- targets.set(importedBuild)
@@ -113,7 +113,10 @@ class BspStateManager(
       state.getOrElse(uri, throw new IllegalStateException("Get should always be called after didOpen"))
     }
 
-  def didOpen(client: SlsLanguageClient[IO], params: lsp.DidOpenTextDocumentParams)(using SynchronizedState): IO[Unit] = {
+  def didOpen(
+      client: SlsLanguageClient[IO],
+      params: lsp.DidOpenTextDocumentParams,
+  )(using SynchronizedState): IO[Unit] = {
     val uri = URI.create(params.textDocument.uri)
     sourcesToTargets.evalUpdate(state =>
       for {

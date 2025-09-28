@@ -1,7 +1,7 @@
 package org.scala.abusers.sls
 
-import cats.effect.IO
 import cats.effect.std.Semaphore
+import cats.effect.IO
 
 sealed trait SynchronizedState
 

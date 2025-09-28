@@ -1,12 +1,12 @@
 package org.scala.abusers.profiling.runtime
 
 import cats.effect.IO
+import org.typelevel.otel4s.sdk.trace.data.SpanData
 import org.typelevel.otel4s.sdk.trace.processor.SpanProcessor
 import org.typelevel.otel4s.sdk.trace.processor.SpanProcessor.OnEnd
 import org.typelevel.otel4s.sdk.trace.processor.SpanProcessor.OnStart
-import org.typelevel.otel4s.trace.SpanContext
 import org.typelevel.otel4s.sdk.trace.SpanRef
-import org.typelevel.otel4s.sdk.trace.data.SpanData
+import org.typelevel.otel4s.trace.SpanContext
 import org.typelevel.otel4s.Attribute
 
 class ProfilingSpanProcessor extends SpanProcessor[IO] {

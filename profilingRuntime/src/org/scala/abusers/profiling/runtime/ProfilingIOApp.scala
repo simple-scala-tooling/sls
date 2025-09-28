@@ -1,30 +1,30 @@
 package org.scala.abusers.profiling.runtime
 
-import cats.effect.IOLocal
-import cats.effect.unsafe.IORuntime
-import cats.effect.IOApp
-import io.pyroscope.PyroscopeAsyncProfiler
 import cats.effect.kernel.Resource
-import cats.effect.IO
-import io.pyroscope.javaagent.PyroscopeAgent
-import cats.effect.SyncIO
-import org.typelevel.otel4s.sdk.OpenTelemetrySdk
-import io.pyroscope.javaagent.config.Config as PyroscopeConfig
-import cats.syntax.all.*
-import io.pyroscope.javaagent.EventType
-import io.pyroscope.http.Format
-import org.typelevel.otel4s.sdk.exporter.otlp.autoconfigure.OtlpExportersAutoConfigure
-import cats.effect.ExitCode
+import cats.effect.unsafe.IORuntime
 import cats.effect.unsafe.IORuntimeBuilder
-import org.typelevel.otel4s.experimental.metrics._
-import org.typelevel.otel4s.trace.Tracer
-import org.typelevel.otel4s.metrics.Meter
+import cats.effect.ExitCode
+import cats.effect.IO
+import cats.effect.IOApp
+import cats.effect.IOLocal
+import cats.effect.SyncIO
+import cats.syntax.all.*
+import io.pyroscope.http.Format
+import io.pyroscope.javaagent.config.Config as PyroscopeConfig
+import io.pyroscope.javaagent.EventType
+import io.pyroscope.javaagent.PyroscopeAgent
+import io.pyroscope.PyroscopeAsyncProfiler
 import org.typelevel.otel4s.context.LocalProvider
+import org.typelevel.otel4s.experimental.metrics._
+import org.typelevel.otel4s.metrics.Meter
 import org.typelevel.otel4s.sdk.context.Context
-import cats.effect.org.scala.abusers.profiling.runtime.ProfilingExecutionContext
+import org.typelevel.otel4s.sdk.exporter.otlp.autoconfigure.OtlpExportersAutoConfigure
+import org.typelevel.otel4s.sdk.OpenTelemetrySdk
+import org.typelevel.otel4s.trace.Tracer
 
 object ProfilingIOAppSettings {
-  lazy val isEnabled: Boolean = sys.env.get("SLS_PROFILING").contains("true") || sys.props.get("sls.profiling").contains("true")
+  lazy val isEnabled: Boolean =
+    sys.env.get("SLS_PROFILING").contains("true") || sys.props.get("sls.profiling").contains("true")
 }
 
 trait ProfilingIOApp extends IOApp {
@@ -45,11 +45,12 @@ trait ProfilingIOApp extends IOApp {
 
   private lazy val _runtime =
     IORuntimeBuilder()
-      .transformCompute { ec => ProfilingExecutionContext.wrapExecutionContext(ec, profiler, threadLocal) }
-      .transformBlocking { ec => ProfilingExecutionContext.wrapExecutionContext(ec, profiler, threadLocal) }
+      .transformCompute(ec => ProfilingExecutionContext.wrapExecutionContext(ec, profiler, threadLocal))
+      .transformBlocking(ec => ProfilingExecutionContext.wrapExecutionContext(ec, profiler, threadLocal))
       .build()
 
-  override protected def runtime: IORuntime = if ProfilingIOAppSettings.isEnabled then _runtime else null /* Null is the default value */
+  override protected def runtime: IORuntime =
+    if ProfilingIOAppSettings.isEnabled then _runtime else null /* Null is the default value */
 
   def program(using meter: Meter[IO], tracer: Tracer[IO]): Resource[IO, Unit]
   def applicationName: String
@@ -58,32 +59,34 @@ trait ProfilingIOApp extends IOApp {
     OpenTelemetrySdk
       .autoConfigured[IO](
         _.addExportersConfigurer(OtlpExportersAutoConfigure[IO])
-         .addTracerProviderCustomizer((builder, _) => builder.addSpanProcessor(new ProfilingSpanProcessor))
+          .addTracerProviderCustomizer((builder, _) => builder.addSpanProcessor(new ProfilingSpanProcessor))
       )
       .flatTap(_ => registerPyroscope())
       .use { autoConfigured =>
         val sdk = autoConfigured.sdk
 
         val app = for {
-          given Meter[IO] <- sdk.meterProvider.get(applicationName).toResource
+          given Meter[IO]  <- sdk.meterProvider.get(applicationName).toResource
           given Tracer[IO] <- sdk.tracerProvider.get(applicationName).toResource
-          _ <- RuntimeMetrics.register[IO]
-          _ <- program
+          _                <- RuntimeMetrics.register[IO]
+          _                <- program
         } yield ()
 
         app.useForever
-      }.as(ExitCode.Success)
+      }
+      .as(ExitCode.Success)
 
   private def registerPyroscope(): Resource[IO, Unit] = {
     val acquire = IO.delay {
       PyroscopeAgent.start(
-        PyroscopeConfig.Builder()
+        PyroscopeConfig
+          .Builder()
           .setApplicationName(applicationName)
           .setProfilingEvent(EventType.ITIMER)
           .setFormat(Format.JFR)
           .setServerAddress("http://localhost:4040") // Refactor in the future to be configurable
           .build()
-        )
+      )
     }
 
     Resource.eval(acquire).void
