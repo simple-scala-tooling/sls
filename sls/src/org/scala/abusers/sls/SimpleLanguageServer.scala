@@ -1,6 +1,5 @@
 package org.scala.abusers.sls
 
-import cats.effect.*
 import cats.syntax.all.*
 import jsonrpclib.fs2.*
 import jsonrpclib.smithy4sinterop.ClientStub
@@ -9,6 +8,8 @@ import org.scala.abusers.pc.IOCancelTokens
 import org.scala.abusers.pc.PresentationCompilerProvider
 import org.typelevel.otel4s.trace.Tracer
 import org.typelevel.otel4s.metrics.Meter
+import org.scala.abusers.profiling.runtime.ProfilingIOApp
+import cats.effect.*
 
 case class BuildServer(
     generic: bsp.BuildServer[IO],
@@ -41,7 +42,7 @@ object LSPCancelRequest {
     )
 }
 
-object SimpleScalaServer extends org.scala.abusers.profiling.runtime.ProfilingIOApp {
+object SimpleScalaServer extends ProfilingIOApp {
   import jsonrpclib.smithy4sinterop.ServerEndpoints
 
   override def applicationName: String = "simple-language-server"
@@ -70,7 +71,7 @@ object SimpleScalaServer extends org.scala.abusers.profiling.runtime.ProfilingIO
         )
         .compile
         .drain
-        .background
+        .toResource
     } yield ()
 
   private def server(lspClient: SlsLanguageClient[IO])(using Tracer[IO], Meter[IO]): Resource[IO, ServerImpl] =
