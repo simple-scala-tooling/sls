@@ -1,15 +1,15 @@
 package org.scala.abusers.sls
 
+import cats.effect.*
 import cats.syntax.all.*
 import jsonrpclib.fs2.*
 import jsonrpclib.smithy4sinterop.ClientStub
 import jsonrpclib.CallId
 import org.scala.abusers.pc.IOCancelTokens
 import org.scala.abusers.pc.PresentationCompilerProvider
-import org.typelevel.otel4s.trace.Tracer
-import org.typelevel.otel4s.metrics.Meter
 import org.scala.abusers.profiling.runtime.ProfilingIOApp
-import cats.effect.*
+import org.typelevel.otel4s.metrics.Meter
+import org.typelevel.otel4s.trace.Tracer
 
 case class BuildServer(
     generic: bsp.BuildServer[IO],
@@ -27,7 +27,6 @@ object BuildServer {
   )
 }
 
-
 private case class LSPCancelRequest(id: CallId)
 
 object LSPCancelRequest {
@@ -38,7 +37,7 @@ object LSPCancelRequest {
     .make[LSPCancelRequest](
       "$/cancelRequest",
       _.id,
-      LSPCancelRequest(_)
+      LSPCancelRequest(_),
     )
 }
 
@@ -49,11 +48,11 @@ object SimpleScalaServer extends ProfilingIOApp {
 
   override def program(using meter: Meter[IO], tracer: Tracer[IO]) =
     for {
-      fs2Channel              <- FS2Channel.resource[IO](cancelTemplate = LSPCancelRequest.cancelTemplate.some)
-      client                  <- ClientStub(SlsLanguageClient, fs2Channel).liftTo[IO].toResource
-      serverImpl              <- server(client)
-      serverEndpoints         <- ServerEndpoints(serverImpl).liftTo[IO].toResource
-      channelWithEndpoints    <- fs2Channel.withEndpoints(serverEndpoints)
+      fs2Channel           <- FS2Channel.resource[IO](cancelTemplate = LSPCancelRequest.cancelTemplate.some)
+      client               <- ClientStub(SlsLanguageClient, fs2Channel).liftTo[IO].toResource
+      serverImpl           <- server(client)
+      serverEndpoints      <- ServerEndpoints(serverImpl).liftTo[IO].toResource
+      channelWithEndpoints <- fs2Channel.withEndpoints(serverEndpoints)
       _ <- fs2.Stream // Refactor to be single threaded
         .never[IO]
         .concurrently(
@@ -84,5 +83,15 @@ object SimpleScalaServer extends ProfilingIOApp {
       cancelTokens      <- IOCancelTokens.instance
       diagnosticManager <- DiagnosticManager.instance.toResource
       computationQueue  <- ComputationQueue.instance.toResource
-    } yield ServerImpl(pcProvider, cancelTokens, diagnosticManager, steward, bspClientDeferred, lspClient, computationQueue, textDocumentSync, bspStateManager)
+    } yield ServerImpl(
+      pcProvider,
+      cancelTokens,
+      diagnosticManager,
+      steward,
+      bspClientDeferred,
+      lspClient,
+      computationQueue,
+      textDocumentSync,
+      bspStateManager,
+    )
 }
