@@ -50,7 +50,7 @@ trait ProfilingIOApp extends IOApp {
       .build()
 
   override protected def runtime: IORuntime =
-    if ProfilingIOAppSettings.isEnabled then _runtime else null /* Null is the default value */
+    if ProfilingIOAppSettings.isEnabled then _runtime else super.runtime
 
   def program(using meter: Meter[IO], tracer: Tracer[IO]): Resource[IO, Unit]
   def applicationName: String
