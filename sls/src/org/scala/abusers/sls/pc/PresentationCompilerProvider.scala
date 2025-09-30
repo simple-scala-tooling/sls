@@ -13,11 +13,11 @@ import os.Path
 import java.net.URLClassLoader
 import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
-import scala.meta.pc.PresentationCompiler
+import scala.meta.pc.RawPresentationCompiler
 
 class PresentationCompilerProvider(
     serviceLoader: BlockingServiceLoader,
-    compilers: SCache[IO, BuildTargetIdentifier, PresentationCompiler],
+    compilers: SCache[IO, BuildTargetIdentifier, RawPresentationCompiler],
 ) {
   private val cache = Cache.create() // .withLogger TODO No completions here
 
@@ -53,21 +53,21 @@ class PresentationCompilerProvider(
     for {
       compilerClasspath <- fetchPresentationCompilerJars(scalaVersion)
       classloader       <- freshPresentationCompilerClassloader(projectClasspath, compilerClasspath)
-      pc <- serviceLoader.load(classOf[PresentationCompiler], PresentationCompilerProvider.classname, classloader)
-    } yield pc.newInstance("random", projectClasspath.map(_.toNIO).asJava, scalacOptions.asJava)
+      pc <- serviceLoader.load(classOf[RawPresentationCompiler], PresentationCompilerProvider.classname, classloader)
+    } yield pc.newInstance("pc-id-replace", projectClasspath.map(_.toNIO).asJava, scalacOptions.asJava)
 
-  def get(info: ScalaBuildTargetInformation)(using SynchronizedState): IO[PresentationCompiler] =
+  def get(info: ScalaBuildTargetInformation)(using SynchronizedState): IO[RawPresentationCompiler] =
     compilers.getOrUpdate(info.buildTarget.id)(createPC(info.scalaVersion, info.classpath, info.compilerOptions))
 }
 
 object PresentationCompilerProvider {
-  val classname = "dotty.tools.pc.ScalaPresentationCompiler"
+  val classname = "dotty.tools.pc.RawScalaPresentationCompiler"
 
   def instance: IO[PresentationCompilerProvider] =
     for {
       serviceLoader <- BlockingServiceLoader.instance
       pcProvider <- SCache
-        .expiring[IO, BuildTargetIdentifier, PresentationCompiler]( // we will need to move this out because other services will want to manage the state of the cache and invalidate when configuration changes also this shoul be ModuleFingerprint or something like that
+        .expiring[IO, BuildTargetIdentifier, RawPresentationCompiler]( // we will need to move this out because other services will want to manage the state of the cache and invalidate when configuration changes also this shoul be ModuleFingerprint or something like that
           ExpiringCache.Config(expireAfterRead = 5.minutes),
           None,
         )
