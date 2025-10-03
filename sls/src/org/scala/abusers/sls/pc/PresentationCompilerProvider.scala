@@ -31,7 +31,7 @@ class PresentationCompilerProvider(
       .create()
       .withCache(cache)
       .addDependencies(dep)
-      .addRepositories( /* load from user config */ )
+      .addRepositories(MavenRepository.of("https://central.sonatype.com/repository/maven-snapshots/"))
       .fetch()
       .asScala
       .map(os.Path.apply)

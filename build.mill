@@ -25,6 +25,7 @@ trait CommonScalaModule extends ScalaModule with ScalafixModule {
       MavenRepository("https://s01.oss.sonatype.org/content/repositories/snapshots"),
       MavenRepository("https://s01.oss.sonatype.org/content/repositories/releases"),
       MavenRepository("https://evolution.jfrog.io/artifactory/public"),
+      MavenRepository("https://central.sonatype.com/repository/maven-snapshots/")
     ) ++ super.repositoriesTask()
   }
 

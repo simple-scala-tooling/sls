@@ -37,7 +37,6 @@ import scala.meta.pc.VirtualFileParams
 import LoggingUtils.*
 import ScalaBuildTargetInformation.*
 import scala.meta.pc.RawPresentationCompiler
-import scala.meta.pc.CompletionTriggerKind
 import lsp.CompletionTriggerKind.TRIGGER_CHARACTER
 import lsp.CompletionTriggerKind.TRIGGER_FOR_INCOMPLETE_COMPLETIONS
 
