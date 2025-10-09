@@ -48,6 +48,7 @@ object profilingRuntime extends CommonScalaModule with PublishModule {
     ivy"org.typelevel::otel4s-sdk:0.13.1",
     ivy"org.typelevel::otel4s-sdk-exporter:0.13.1",
     ivy"org.typelevel::otel4s-experimental-metrics:0.7.0",
+    ivy"org.typelevel::otel4s-instrumentation-metrics:0.13.1"
   )
 
   def pomSettings: T[PomSettings] = PomSettings(

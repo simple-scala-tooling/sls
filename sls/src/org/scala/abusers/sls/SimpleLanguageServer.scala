@@ -9,6 +9,7 @@ import org.scala.abusers.pc.PresentationCompilerProvider
 import org.scala.abusers.profiling.runtime.ProfilingIOApp
 import org.typelevel.otel4s.metrics.Meter
 import org.typelevel.otel4s.trace.Tracer
+import cats.effect.std.Console
 
 case class BuildServer(
     generic: bsp.BuildServer[IO],
@@ -47,6 +48,8 @@ object SimpleScalaServer extends ProfilingIOApp {
   import jsonrpclib.smithy4sinterop.ServerEndpoints
 
   override def applicationName: String = "simple-language-server"
+
+  override given console: Console[IO] = ErrorOutConsole()
 
   override def program(using meter: Meter[IO], tracer: Tracer[IO]) =
     for {

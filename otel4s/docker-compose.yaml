@@ -26,6 +26,9 @@ services:
 
   prometheus:
     image: prom/prometheus:latest
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--web.enable-remote-write-receiver'
     volumes:
       - "./prometheus/prometheus.yaml:/etc/prometheus/prometheus.yml"
     ports:
@@ -43,6 +46,10 @@ services:
   grafana:
     image: grafana/grafana
     restart: unless-stopped
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
     volumes:
       - "./grafana/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml"
       - "./grafana/dashboards.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml"
