@@ -21,6 +21,9 @@ import org.typelevel.otel4s.sdk.context.Context
 import org.typelevel.otel4s.sdk.exporter.otlp.autoconfigure.OtlpExportersAutoConfigure
 import org.typelevel.otel4s.sdk.OpenTelemetrySdk
 import org.typelevel.otel4s.trace.Tracer
+import cats.effect.std.Console
+import org.typelevel.otel4s.instrumentation.ce.IORuntimeMetrics
+import org.typelevel.otel4s.metrics.MeterProvider
 
 object ProfilingIOAppSettings {
   lazy val isEnabled: Boolean =
@@ -29,6 +32,8 @@ object ProfilingIOAppSettings {
 
 trait ProfilingIOApp extends IOApp {
   private lazy val profiler = PyroscopeAsyncProfiler.getAsyncProfiler()
+
+  given console: Console[IO]
 
   private given localCtx: IOLocal[Context] = IOLocal[Context](Context.root)
     .syncStep(100)
@@ -43,11 +48,12 @@ trait ProfilingIOApp extends IOApp {
 
   private val threadLocal = localCtx.unsafeThreadLocal()
 
-  private lazy val _runtime =
+  private lazy val _runtime = {
     IORuntimeBuilder()
       .transformCompute(ec => ProfilingExecutionContext.wrapExecutionContext(ec, profiler, threadLocal))
       .transformBlocking(ec => ProfilingExecutionContext.wrapExecutionContext(ec, profiler, threadLocal))
       .build()
+  }
 
   override protected def runtime: IORuntime =
     if ProfilingIOAppSettings.isEnabled then _runtime else super.runtime
@@ -57,19 +63,21 @@ trait ProfilingIOApp extends IOApp {
 
   override def run(args: List[String]): IO[ExitCode] =
     OpenTelemetrySdk
-      .autoConfigured[IO](
-        _.addExportersConfigurer(OtlpExportersAutoConfigure[IO])
-          .addTracerProviderCustomizer((builder, _) => builder.addSpanProcessor(new ProfilingSpanProcessor))
+      .autoConfigured[IO](_
+        .addExportersConfigurer(OtlpExportersAutoConfigure[IO])
+        .addTracerProviderCustomizer((builder, _) => builder.addSpanProcessor(new ProfilingSpanProcessor))
       )
       .flatTap(_ => registerPyroscope())
       .use { autoConfigured =>
         val sdk = autoConfigured.sdk
+        given MeterProvider[IO] = sdk.meterProvider
 
         val app = for {
-          given Meter[IO]  <- sdk.meterProvider.get(applicationName).toResource
-          given Tracer[IO] <- sdk.tracerProvider.get(applicationName).toResource
-          _                <- RuntimeMetrics.register[IO]
-          _                <- program
+          given Meter[IO]        <- sdk.meterProvider.get(applicationName).toResource
+          given Tracer[IO]       <- sdk.tracerProvider.get(applicationName).toResource
+          _                      <- IORuntimeMetrics.register[IO](runtime.metrics, IORuntimeMetrics.Config.default)
+          _                      <- RuntimeMetrics.register[IO]
+          _                      <- program
         } yield ()
 
         app.useForever
@@ -77,7 +85,7 @@ trait ProfilingIOApp extends IOApp {
       .as(ExitCode.Success)
 
   private def registerPyroscope(): Resource[IO, Unit] = {
-    val acquire = IO.delay {
+    val acquire = IO.whenA(ProfilingIOAppSettings.isEnabled)( IO.delay {
       PyroscopeAgent.start(
         PyroscopeConfig
           .Builder()
@@ -87,7 +95,7 @@ trait ProfilingIOApp extends IOApp {
           .setServerAddress("http://localhost:4040") // Refactor in the future to be configurable
           .build()
       )
-    }
+    })
 
     Resource.eval(acquire).void
   }
