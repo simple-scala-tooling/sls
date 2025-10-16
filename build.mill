@@ -42,7 +42,7 @@ object slsSmithy extends CommonScalaModule with Smithy4sModule {
   )
 }
 
-object profilingRuntime extends CommonScalaModule with PublishModule {
+object profilingRuntime extends CommonScalaModule {
   def ivyDeps = Agg(
     ivy"io.pyroscope:agent:2.1.2",
     ivy"org.typelevel::cats-effect:3.6.3",
@@ -51,19 +51,6 @@ object profilingRuntime extends CommonScalaModule with PublishModule {
     ivy"org.typelevel::otel4s-experimental-metrics:0.7.0",
     ivy"org.typelevel::otel4s-instrumentation-metrics:0.13.1"
   )
-
-  def pomSettings: T[PomSettings] = PomSettings(
-    description = "A runtime with pyroscope profiling and OpenTelemetry tracing",
-    url = "",
-    licenses = Seq(License.`MPL-2.0`),
-    organization = "org.scala.abusers",
-    versionControl = VersionControl.github("simple-scala-tooling", "simple-language-server"),
-    developers = Seq(
-      Developer("rochala", "Jędrzej Rochala", url = "https://github.com/rochala")
-    )
-  )
-
-  def publishVersion: T[String] = "0.0.1-SNAPSHOT"
 }
 
 object sls extends CommonScalaModule {
@@ -89,6 +76,7 @@ object sls extends CommonScalaModule {
     ivy"com.evolution::scache:5.1.2",
     ivy"org.typelevel::cats-parse:1.1.0",
     ivy"io.get-coursier:interface:1.0.28",
+    ivy"org.ow2.asm:asm:9.6",
   )
 
   def javacOptions = Seq(
