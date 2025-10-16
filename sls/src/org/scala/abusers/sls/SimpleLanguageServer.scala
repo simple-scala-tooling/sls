@@ -27,23 +27,6 @@ object BuildServer {
   )
 }
 
-<<<<<<< HEAD
-=======
-private case class LSPCancelRequest(id: CallId)
-
-object LSPCancelRequest {
-  import io.circe.Codec
-  given Codec[LSPCancelRequest] = Codec.derived[LSPCancelRequest]
-
-  val cancelTemplate: CancelTemplate = CancelTemplate
-    .make[LSPCancelRequest](
-      "$/cancelRequest",
-      _.id,
-      LSPCancelRequest(_),
-    )
-}
-
->>>>>>> 7309c04 (Format)
 object SimpleScalaServer extends ProfilingIOApp {
   import jsonrpclib.smithy4sinterop.ServerEndpoints
 
