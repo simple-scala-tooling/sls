@@ -24,21 +24,18 @@ import smithy4s.schema.Schema
 import util.chaining.*
 
 import java.net.URI
-import java.util.concurrent.CompletableFuture
 import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 import scala.jdk.OptionConverters.*
 import scala.meta.pc.CancelToken
 import scala.meta.pc.InlayHintsParams
 import scala.meta.pc.OffsetParams
-import scala.meta.pc.PresentationCompiler
 import scala.meta.pc.VirtualFileParams
 
 import LoggingUtils.*
 import ScalaBuildTargetInformation.*
 import scala.meta.pc.RawPresentationCompiler
-import lsp.CompletionTriggerKind.TRIGGER_CHARACTER
-import lsp.CompletionTriggerKind.TRIGGER_FOR_INCOMPLETE_COMPLETIONS
+import scala.meta.pc.SymbolSource
 
 class ServerImpl(
     pcProvider: PresentationCompilerProvider,
@@ -53,6 +50,8 @@ class ServerImpl(
 )(using Tracer[IO], Meter[IO])
     extends SlsLanguageServer[IO] {
 
+  val rootPathDeferred = Deferred.unsafe[IO, os.Path]
+
   /* There can only be one client for one language-server */
 
   def initializeOp(params: lsp.InitializeParams): IO[lsp.InitializeOpOutput] = {
@@ -60,6 +59,7 @@ class ServerImpl(
     val rootPath = os.Path(java.net.URI.create(rootUri).getPath())
     (for {
       _         <- lspClient.logMessage("Ready to initialise!")
+      _         <- rootPathDeferred.complete(rootPath)
       _         <- importMillBsp(rootPath)
       bspClient <- connectWithBloop(steward, diagnosticManager)
       _         <- lspClient.logMessage("Connection with bloop estabilished")
@@ -166,20 +166,14 @@ class ServerImpl(
       }
     }
 
-  def handleDefinition(params: lsp.DefinitionParams)(using SynchronizedState) =
-    {
-      offsetParamsRequest(params)(_.definition).map { result =>
-        lsp.TextDocumentDefinitionOpOutput(
-          result
-            .locations()
-            .asScala
-            .headOption
-            .map(definition =>
-              convert[lsp4j.Location, lsp.DefinitionOrListOfDefinitionLink](definition)
-            ) // FIXME: missing completion on lsp.TextDocumentDefinitionOpOutput
-        )
-      }
-    }
+  def handleDefinition(params: lsp.DefinitionParams)(using SynchronizedState): IO[lsp.TextDocumentDefinitionOpOutput] =
+    (
+      for {
+        symbolSources <- offsetParamsRequest(params)(_.symbolSource).map(_.asScala.toList)
+        rootPath      <- rootPathDeferred.get
+        locations <- symbolSources.parFlatTraverse(DefinitionProvider(rootPath, lspClient, bspStateManager).definition)
+      } yield lsp.DefinitionOrListOfDefinitionLink.Case0Case(lsp.Definition.Case1Case(locations)).some
+    ).map(lsp.TextDocumentDefinitionOpOutput.apply)
 
   def virtualFileParams(uri0: URI, content: String, token0: CancelToken): VirtualFileParams = new VirtualFileParams {
     override def text(): String       = content

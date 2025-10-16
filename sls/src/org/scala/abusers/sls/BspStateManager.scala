@@ -10,10 +10,14 @@ import cats.effect.std.AtomicCell
 import cats.effect.IO
 import org.scala.abusers.pc.ScalaVersion
 import org.scala.abusers.sls.LoggingUtils.*
+import bsp.DependencyModule.DependencyModuleMavenDependencyModule
 
 import java.net.URI
+import bsp.DependencyModulesParams
+import bsp.BuildTargetIdentifier
+import bsp.DependencyModule
 
-type ScalaBuildTargetInformation = (scalacOptions: ScalacOptionsItem, buildTarget: BuildTargetScalaBuildTarget)
+type ScalaBuildTargetInformation = (scalacOptions: ScalacOptionsItem, buildTarget: BuildTargetScalaBuildTarget, dependencies: List[DependencyModule])
 
 object ScalaBuildTargetInformation {
   extension (buildTargetInformation: ScalaBuildTargetInformation) {
@@ -68,10 +72,10 @@ class BspStateManager(
   private def getBuildInformation(bspServer: BuildServer): IO[Set[ScalaBuildTargetInformation]] =
     for {
       workspaceBuildTargets <- bspServer.generic.workspaceBuildTargets()
-      scalacOptions <- bspServer.scala.buildTargetScalacOptions(
-        ScalacOptionsParams(targets = workspaceBuildTargets.targets.map(_.id))
-      ) //
-    } yield buildTargetToScalaTargets(workspaceBuildTargets, scalacOptions)
+      buildTargets        = workspaceBuildTargets.targets.map(_.id)
+      scalacOptions <- bspServer.scala.buildTargetScalacOptions(ScalacOptionsParams(buildTargets))
+      dependencyInformations <- bspServer.generic.buildTargetDependencyModules(DependencyModulesParams(buildTargets))
+    } yield toScalaBuildTargetInformation(workspaceBuildTargets, scalacOptions, dependencyInformations)
       .groupMapReduce(_.buildTarget.id)(identity)(byScalaVersion.max)
       .values
       .toSet
@@ -85,23 +89,54 @@ class BspStateManager(
       )
     yield inverseSources.targets
 
-  private def buildTargetToScalaTargets(
+  private def toScalaBuildTargetInformation(
       targets: bsp.WorkspaceBuildTargetsResult,
       scalacOptions: bsp.scala_.ScalacOptionsResult,
+      dependencyInformations: bsp.DependencyModulesResult,
   ): Set[ScalaBuildTargetInformation] = {
-    val scalacOptions0 = scalacOptions.items.map(item => item.target -> item).toMap
+    val scalacOptions0 = scalacOptions.items.groupBy(_.target)
+    val dependencyInformations0 = dependencyInformations.items.groupBy(_.target)
     val (mismatchedTargets, zippedTargets) = targets.targets.partitionMap { target =>
-      scalacOptions0.get(target.id) match {
-        case Some(scalacOptionsItem) if target.project.scala.isDefined =>
-          Right(scalacOptions = scalacOptionsItem, buildTarget = target.project.scala.get)
+      val withScalacOptions = scalacOptions0.get(target.id) match {
+        case Some(scalacOptionsItems) if target.project.scala.isDefined =>
+          val scalacOptions0 = scalacOptionsItems
+              .headOption
+              .getOrElse(sys.error(s"There should be exactly one ScalacOptionsItem for ${target} but was ${scalacOptionsItems}"))
+          Right(scalacOptions = scalacOptions0, buildTarget = target.project.scala.get)
         case _ => Left(target.id)
       }
+
+      val withDependencies: Either[BuildTargetIdentifier, ScalaBuildTargetInformation] = withScalacOptions.flatMap { info =>
+        dependencyInformations0.get(target.id) match {
+          case Some(dependencies) =>
+            val dependencies0 = dependencies
+              .headOption
+              .map(_.modules)
+              .getOrElse(sys.error(s"There should be exactly one DependencyModulesItem for ${target} but was ${dependencies}"))
+            Right(info ++ (dependencies = dependencies0))
+          case _ =>
+            Left(target.id)
+        }
+      }
+      withDependencies
     }
 
     if mismatchedTargets.nonEmpty then throw new IllegalStateException(
-      s"Mismatched targets to ScalacOptionsResult probably caused due to existance of java scopes. ${mismatchedTargets.mkString(", ")}"
+      s"Mismatched options (*probably caused due to existance of java scopes). ${mismatchedTargets.mkString(", ")}"
     )
     else zippedTargets.toSet
+  }
+
+  def getDependencyInfo(uri: URI)(using SynchronizedState): IO[Option[DependencyModuleMavenDependencyModule]] = {
+    val queriedUri = bsp.URI(uri.toString)
+
+    targets.get.map { targets =>
+      targets.iterator.flatMap {
+         _.dependencies
+          .collect { case m: DependencyModuleMavenDependencyModule => m }
+          .find(_.data.artifacts.find(_.uri == queriedUri).isDefined)
+      }.nextOption()
+    }
   }
 
   /** didOpen / didChange is always a first request in sequence e.g didChange -> completion -> semanticTokens
