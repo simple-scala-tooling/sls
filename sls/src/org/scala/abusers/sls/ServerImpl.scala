@@ -1,4 +1,5 @@
-package org.scala.abusers.sls
+package org.scala.abusers
+package sls
 
 import bsp.InitializeBuildParams
 import cats.effect.kernel.Deferred
@@ -39,6 +40,8 @@ import ScalaBuildTargetInformation.*
 import scala.meta.pc.RawPresentationCompiler
 import lsp.CompletionTriggerKind.TRIGGER_CHARACTER
 import lsp.CompletionTriggerKind.TRIGGER_FOR_INCOMPLETE_COMPLETIONS
+import org.scala.abusers.csp.CspServer
+import jsonrpclib.smithy4sinterop.ServerEndpoints
 
 class ServerImpl(
     pcProvider: PresentationCompilerProvider,
@@ -46,6 +49,7 @@ class ServerImpl(
     diagnosticManager: DiagnosticManager,
     steward: ResourceSupervisor[IO],
     bspClientDeferred: Deferred[IO, BuildServer],
+    cspClientDeferred: Deferred[IO, CspServer[IO]],
     lspClient: SlsLanguageClient[IO],
     computationQueue: ComputationQueue,
     textDocumentSyncManager: TextDocumentSyncManager,
@@ -62,6 +66,7 @@ class ServerImpl(
       _         <- lspClient.logMessage("Ready to initialise!")
       _         <- importMillBsp(rootPath)
       bspClient <- connectWithBloop(steward, diagnosticManager)
+      cspClient <- connectWithCsp(steward)
       _         <- lspClient.logMessage("Connection with bloop estabilished")
       response <- bspClient.generic.buildInitialize(
         InitializeBuildParams(
@@ -75,6 +80,7 @@ class ServerImpl(
       _ <- lspClient.logMessage(s"Response from bsp: $response")
       _ <- bspClient.generic.onBuildInitialized()
       _ <- bspClientDeferred.complete(bspClient)
+      _ <- cspClientDeferred.complete(cspClient)
     } yield lsp.InitializeOpOutput(
       lsp
         .InitializeResult(
@@ -110,7 +116,7 @@ class ServerImpl(
     }
   def textDocumentDidSave(params: lsp.DidSaveTextDocumentParams): IO[Unit] =
     computationQueue.synchronously {
-      Tracer[IO].span("did-save").profilingSurround(handleDidSave(params))
+      lspClient.logMessage("OOHOHOHO DID SAVE") >> Tracer[IO].span("did-save").profilingSurround(handleDidSave(params))
     }
   def textDocumentHoverOp(params: lsp.HoverParams): IO[lsp.TextDocumentHoverOpOutput] =
     computationQueue.synchronously {
@@ -235,13 +241,14 @@ class ServerImpl(
   )(using SynchronizedState): IO[Result] = { // TODO Completion on context bound inserts []
     val uri = summon[WithURI[Params]].uri(params)
     for {
-      info   <- bspStateManager.get(uri)
+      info   <- bspStateManager.get(uri) // zmergujmy z CSP managerem, zeby juz wszystko poprawnie zwracalo
       pc     <- pcProvider.get(info)
       result <- IO.interruptible(thunk(pc)(pcParams))
     } yield result
   }
 
   def handleDidSave(params: lsp.DidSaveTextDocumentParams)(using SynchronizedState) =
+    // Musze dodac sztuczny path do kazdego classpath w PC, ktory depcopy output jarki
     {
       for {
         _    <- textDocumentSyncManager.didSave(params)
@@ -249,9 +256,21 @@ class ServerImpl(
       } yield info
     }
       .flatMap { info =>
-        bspStateManager.bspServer.generic.buildTargetCompile(
-          bsp.CompileParams(targets = List(info.buildTarget.id))
-        ) // we need to handle the case:
+        cspClientDeferred.get.flatMap { cspClient =>
+          cspClient.compile(
+            scopeId = info.buildTarget.displayName.getOrElse("default"),
+            classpath = info.classpath.map(_.toString),
+            sourcePath = info.sources._2.map(p => URI(p.uri.value).getPath()),
+            scalaVersion = org.scala.abusers.csp.ScalaVersion(info.buildTarget.data.scalaVersion),
+            scalacOptions = info.scalacOptions.options,
+            javacOptions = Nil
+          )
+        }.flatMap { res =>
+          val outputJar = res.outputJar
+          computationQueue.pushSync(???)
+          lspClient.logMessage("Received CSP compile result: " + res.toString)
+        }.timeout(60.seconds).start
+        // we need to handle the case:
         // User saves, compilation starts, we don't want to block it, completion starts, during completion compilation ends new classfiles emmited. We need to know which classfiles are new.
         // I hardly believe that we should use straight to jar compilation for that
       }
@@ -377,6 +396,23 @@ class ServerImpl(
 
     steward.acquire(bspClientRes)
   }
+
+  private def connectWithCsp(
+      steward: ResourceSupervisor[IO],
+  ): IO[CspServer[IO]] = {
+    import jsonrpclib.fs2.*
+    val client = for {
+      channel <- FS2Channel
+        .resource[IO](cancelTemplate = None)
+        .flatMap(_.withEndpoints(
+          ServerEndpoints(ZincCspClient()).toOption.getOrElse(sys.error("Couldn't create ServerEndpoints"))))
+      cspProcess <- fs2.io.process.ProcessBuilder("java", "-jar", "/home/rochala/Projects/sls/zinc-cli/out/zincCli/assembly.dest/out.jar").spawn[IO]
+      client <- makeCspClient(cspProcess, channel, msg => lspClient.logDebug(s"reporting raw CSP: $msg"))
+    } yield client
+
+    steward.acquire(client)
+  }
+
 
   def importMillBsp(rootPath: os.Path) = {
     val millExec = "./mill" // TODO if mising then findMillExec()

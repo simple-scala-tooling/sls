@@ -27,7 +27,7 @@ def makeBspClient(path: String, channel: FS2Channel[IO], report: String => IO[Un
         .concurrently(
           socket.reads
             .through(jsonrpclibLsp.decodeMessages)
-            .evalTap(m => report(m.toString))
+            // .evalTap(m => report(m.toString))
             .through(channel.inputOrBounce)
         )
         .concurrently(channel.output.through(jsonrpclibLsp.encodeMessages).through(socket.writes))

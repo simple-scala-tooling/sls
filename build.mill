@@ -29,8 +29,8 @@ trait CommonScalaModule extends ScalaModule with ScalafixModule {
     ) ++ super.repositoriesTask()
   }
 
-  def scalaVersion = "3.7.3-RC2"
-  def scalacOptions = Seq("-no-indent", "-Wunused:all")
+  def scalaVersion = "3.7.4"
+  def scalacOptions = Seq("-Wunused:all")
 }
 
 object slsSmithy extends CommonScalaModule with Smithy4sModule {
@@ -89,6 +89,7 @@ object sls extends CommonScalaModule {
     ivy"com.evolution::scache:5.1.2",
     ivy"org.typelevel::cats-parse:1.1.0",
     ivy"io.get-coursier:interface:1.0.28",
+    ivy"org.scala.abusers::zincSmithy:0.0.1-SNAPSHOT"
   )
 
   def javacOptions = Seq(

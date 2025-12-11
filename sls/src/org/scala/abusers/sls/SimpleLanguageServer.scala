@@ -11,6 +11,7 @@ import org.scala.abusers.profiling.runtime.ProfilingIOApp
 import org.typelevel.otel4s.metrics.Meter
 import org.typelevel.otel4s.trace.Tracer
 import cats.effect.std.Console
+import org.scala.abusers.csp.CspServer
 
 case class BuildServer(
     generic: bsp.BuildServer[IO],
@@ -82,6 +83,7 @@ object SimpleScalaServer extends ProfilingIOApp {
       pcProvider        <- PresentationCompilerProvider.instance.toResource
       textDocumentSync  <- TextDocumentSyncManager.instance.toResource
       bspClientDeferred <- Deferred[IO, BuildServer].toResource
+      cspClientDeferred <- Deferred[IO, CspServer[IO]].toResource
       bspStateManager   <- BspStateManager.instance(lspClient, BuildServer.suspend(bspClientDeferred.get)).toResource
       cancelTokens      <- IOCancelTokens.instance
       diagnosticManager <- DiagnosticManager.instance.toResource
@@ -92,6 +94,7 @@ object SimpleScalaServer extends ProfilingIOApp {
       diagnosticManager,
       steward,
       bspClientDeferred,
+      cspClientDeferred,
       lspClient,
       computationQueue,
       textDocumentSync,

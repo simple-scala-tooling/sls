@@ -12,8 +12,9 @@ import org.scala.abusers.pc.ScalaVersion
 import org.scala.abusers.sls.LoggingUtils.*
 
 import java.net.URI
+import bsp.SourcesParams
 
-type ScalaBuildTargetInformation = (scalacOptions: ScalacOptionsItem, buildTarget: BuildTargetScalaBuildTarget)
+type ScalaBuildTargetInformation = (scalacOptions: ScalacOptionsItem, buildTarget: BuildTargetScalaBuildTarget, sources: bsp.SourcesItem)
 
 object ScalaBuildTargetInformation {
   extension (buildTargetInformation: ScalaBuildTargetInformation) {
@@ -71,7 +72,8 @@ class BspStateManager(
       scalacOptions <- bspServer.scala.buildTargetScalacOptions(
         ScalacOptionsParams(targets = workspaceBuildTargets.targets.map(_.id))
       ) //
-    } yield buildTargetToScalaTargets(workspaceBuildTargets, scalacOptions)
+      targetSources <- bspServer.generic.buildTargetSources(SourcesParams(workspaceBuildTargets.targets.map(_.id)))
+    } yield buildTargetToScalaTargets(workspaceBuildTargets, scalacOptions, targetSources)
       .groupMapReduce(_.buildTarget.id)(identity)(byScalaVersion.max)
       .values
       .toSet
@@ -88,12 +90,14 @@ class BspStateManager(
   private def buildTargetToScalaTargets(
       targets: bsp.WorkspaceBuildTargetsResult,
       scalacOptions: bsp.scala_.ScalacOptionsResult,
+      sources: bsp.SourcesResult,
   ): Set[ScalaBuildTargetInformation] = {
     val scalacOptions0 = scalacOptions.items.map(item => item.target -> item).toMap
+    val sources0 = sources.items.map(item => item.target -> item).toMap
     val (mismatchedTargets, zippedTargets) = targets.targets.partitionMap { target =>
-      scalacOptions0.get(target.id) match {
-        case Some(scalacOptionsItem) if target.project.scala.isDefined =>
-          Right(scalacOptions = scalacOptionsItem, buildTarget = target.project.scala.get)
+      (scalacOptions0.get(target.id), sources0.get(target.id)) match {
+        case (Some(scalacOptionsItem), Some(sources)) if target.project.scala.isDefined =>
+          Right(scalacOptions = scalacOptionsItem, buildTarget = target.project.scala.get, sources = sources)
         case _ => Left(target.id)
       }
     }
