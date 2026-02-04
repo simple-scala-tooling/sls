@@ -23,9 +23,23 @@
     <appender-ref ref="PC_LOG"/>
   </logger>
 
+  <!-- Appender for LSP message traces -->
+  <appender name="LSP_TRACE" class="ch.qos.logback.core.FileAppender">
+    <file>./.logs/lsp-trace.log</file>
+    <append>false</append>
+    <encoder>
+      <pattern>%date{HH:mm:ss.SSS} %-5level - %msg%n</pattern>
+    </encoder>
+  </appender>
+
   <!-- Logger for org.scala.abusers.pc -->
   <logger name="org.scala.abusers" level="DEBUG" additivity="false">
     <appender-ref ref="SLS_LOG"/>
+  </logger>
+
+  <!-- Logger for LSP message traces -->
+  <logger name="org.scala.abusers.sls.MessageTracer" level="TRACE" additivity="false">
+    <appender-ref ref="LSP_TRACE"/>
   </logger>
 
   <root level="INFO">

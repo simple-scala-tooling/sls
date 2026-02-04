@@ -1,4 +1,5 @@
-package org.scala.abusers.sls
+package org.scala.abusers
+package sls
 
 import bsp.InitializeBuildParams
 import cats.effect.kernel.Deferred
@@ -24,21 +25,19 @@ import smithy4s.schema.Schema
 import util.chaining.*
 
 import java.net.URI
-import java.util.concurrent.CompletableFuture
 import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 import scala.jdk.OptionConverters.*
 import scala.meta.pc.CancelToken
 import scala.meta.pc.InlayHintsParams
 import scala.meta.pc.OffsetParams
-import scala.meta.pc.PresentationCompiler
 import scala.meta.pc.VirtualFileParams
 
 import LoggingUtils.*
 import ScalaBuildTargetInformation.*
 import scala.meta.pc.RawPresentationCompiler
-import lsp.CompletionTriggerKind.TRIGGER_CHARACTER
-import lsp.CompletionTriggerKind.TRIGGER_FOR_INCOMPLETE_COMPLETIONS
+import org.scala.abusers.csp.CspServer
+import jsonrpclib.smithy4sinterop.ServerEndpoints
 
 class ServerImpl(
     pcProvider: PresentationCompilerProvider,
@@ -46,6 +45,7 @@ class ServerImpl(
     diagnosticManager: DiagnosticManager,
     steward: ResourceSupervisor[IO],
     bspClientDeferred: Deferred[IO, BuildServer],
+    cspClientDeferred: Deferred[IO, CspServer[IO]],
     lspClient: SlsLanguageClient[IO],
     computationQueue: ComputationQueue,
     textDocumentSyncManager: TextDocumentSyncManager,
@@ -62,12 +62,14 @@ class ServerImpl(
       _         <- lspClient.logMessage("Ready to initialise!")
       _         <- importMillBsp(rootPath)
       bspClient <- connectWithBloop(steward, diagnosticManager)
-      _         <- lspClient.logMessage("Connection with bloop estabilished")
+      cspClient <- connectWithCsp(steward)
+      _         <- lspClient.logMessage("Connection with mill estabilished")
+      _         <- lspClient.logMessage(s"$bspClient")
       response <- bspClient.generic.buildInitialize(
         InitializeBuildParams(
-          displayName = "bloop",
+          displayName = "mill",
           version = "0.0.0",
-          bspVersion = "2.1.0",
+          bspVersion = "2.2.0-M2",
           rootUri = bsp.URI(rootUri),
           capabilities = bsp.BuildClientCapabilities(languageIds = List(bsp.LanguageId("scala"))),
         )
@@ -75,6 +77,7 @@ class ServerImpl(
       _ <- lspClient.logMessage(s"Response from bsp: $response")
       _ <- bspClient.generic.onBuildInitialized()
       _ <- bspClientDeferred.complete(bspClient)
+      _ <- cspClientDeferred.complete(cspClient)
     } yield lsp.InitializeOpOutput(
       lsp
         .InitializeResult(
@@ -232,7 +235,7 @@ class ServerImpl(
 
   private def pcParamsRequest[Params: WithURI, Result, PcParams](params: Params, pcParams: PcParams)(
       thunk: RawPresentationCompiler => PcParams => Result
-  )(using SynchronizedState): IO[Result] = { // TODO Completion on context bound inserts []
+  )(using SynchronizedState): IO[Result] = { // TODO: Completion on context bound inserts []
     val uri = summon[WithURI[Params]].uri(params)
     for {
       info   <- bspStateManager.get(uri)
@@ -242,23 +245,33 @@ class ServerImpl(
   }
 
   def handleDidSave(params: lsp.DidSaveTextDocumentParams)(using SynchronizedState) =
-    {
-      for {
-        _    <- textDocumentSyncManager.didSave(params)
-        info <- bspStateManager.get(URI(params.textDocument.uri))
-      } yield info
+
+    def updateOutputClasspath(targetInfo: ScalaBuildTargetInformation, newClassesJar: os.Path): IO[Unit] = {
+      val updateClassJar =
+        // FIXME: Can't read betasty from jars !!!
+        // FIXME: Can't write be tasty into jars !!!
+        // TODO: Migrate to FS2
+        // TODO: Write FS2 utils for all IO operations
+        // TODO: Use custom traces and spans here to extract timings and profile it
+        IO.whenA(os.exists(newClassesJar)):
+          IO(os.remove.all(targetInfo.osLibClassesDir)) *>
+          UnzipUtils.unzipJarFromPath(fs2.io.file.Path(newClassesJar.toString), fs2.io.file.Path(targetInfo.osLibClassesDir.toString)) *>
+          pcProvider.invalidateCompilers()
+
+      computationQueue.pushSync(updateClassJar)
     }
-      .flatMap { info =>
-        bspStateManager.bspServer.generic.buildTargetCompile(
-          bsp.CompileParams(targets = List(info.buildTarget.id))
-        ) // we need to handle the case:
-        // User saves, compilation starts, we don't want to block it, completion starts, during completion compilation ends new classfiles emmited. We need to know which classfiles are new.
-        // I hardly believe that we should use straight to jar compilation for that
-      }
-      .void
+
+    val uri = URI(params.textDocument.uri)
+    for {
+      _    <- textDocumentSyncManager.didSave(params)
+      info <- bspStateManager.get(uri)
+      _    <- bspStateManager.compileWithCSP(uri).flatMap { res =>
+                updateOutputClasspath(info, os.Path(res.outputJar))
+              }.timeout(60.seconds).start
+    } yield ()
 
   def handleDidOpen(params: lsp.DidOpenTextDocumentParams)(using SynchronizedState) = {
-    lspClient.logMessage("DID OPEN") *> textDocumentSyncManager.didOpen(params) *> bspStateManager.didOpen(lspClient, params)
+    textDocumentSyncManager.didOpen(params) *> bspStateManager.didOpen(lspClient, params)
   }
 
   def handleDidClose(params: lsp.DidCloseTextDocumentParams)(using SynchronizedState) = {
@@ -320,7 +333,7 @@ class ServerImpl(
       hoverProvider = lsp.BooleanOrHoverOptions.case1(lsp.HoverOptions()).some,
       signatureHelpProvider = lsp
         .SignatureHelpOptions(None, List("(", "[", "{").some, List(",").some)
-        .some, // FIXME signature help on List triggers cats effect because of extension methods
+        .some, // FIXME: signature help on List triggers cats effect because of extension methods
       definitionProvider = lsp.BooleanOrDefinitionOptions.case1(lsp.DefinitionOptions(None)).some,
       inlayHintProvider = lsp.BooleanOrInlayHintOptions.case1(lsp.InlayHintOptions(resolveProvider = false.some)).some,
     )
@@ -329,58 +342,39 @@ class ServerImpl(
       steward: ResourceSupervisor[IO],
       diagnosticManager: DiagnosticManager,
   ): IO[BuildServer] = {
-    def bspProcess(socketFile: os.Path) =
-      ProcessBuilder("bloop", "bsp", "--socket", socketFile.toNIO.toString())
-        .spawn[IO]
-        .flatMap { bspSocketProc =>
-          IO.deferred[Unit].toResource.flatMap { started =>
-            val waitForStart: fs2.Pipe[IO, Byte, Nothing] =
-              _.through(fs2.text.utf8.decode)
-                .through(fs2.text.lines)
-                .find(_.contains("The server is listening for incoming connections"))
-                .foreach(_ => started.complete(()).void)
-                .drain
-
-            bspSocketProc.stdout
-              .observe(waitForStart)
-              .merge(bspSocketProc.stderr)
-              .through(text.utf8.decode)
-              .through(text.lines)
-              .evalMap(s => lspClient.logMessage(s"[bloop] $s"))
-              .onFinalizeCase(c => lspClient.sendMessage(s"Bloop process terminated $c"))
-              .compile
-              .drain
-              .background
-            // wait for the started message before proceeding
-              <* started.get.toResource
-          }
-
-        }
-        .as(socketFile)
-
     val bspClientRes = for {
-      temp <- Files[IO]
-        .tempDirectory(
-          dir = None,
-          prefix = "sls",
-          permissions = None,
-        )
-        .map(_.toNioPath.pipe(os.Path(_))) // TODO Investigate possible clashes during reconnection
-      socketFile = temp / "bloop.socket"
-      socketPath <- bspProcess(socketFile)
-      _          <- Resource.eval(IO.sleep(1.seconds) *> lspClient.logMessage(s"Looking for socket at $socketPath"))
+      _          <- Resource.eval(lspClient.logMessage(s"Starting connection to mill BSP server"))
       channel <- FS2Channel
         .resource[IO]()
-        .flatMap(_.withEndpoints(bspClientHandler(lspClient, diagnosticManager)))
-      client <- makeBspClient(socketPath.toString, channel, msg => lspClient.logDebug(s"reporting raw: $msg"))
+        .flatMap(_.withEndpoints(
+          bspClientHandler(lspClient, diagnosticManager)))
+      process <- ProcessBuilder("./mill", "--bsp").spawn[IO]
+      _       <- Resource.eval(IO.sleep(1.seconds) *> lspClient.logMessage(s"Trying to connect to mill BSP server"))
+      client  <- makeBspClient(process, channel, msg => lspClient.logMessage(s"reporting raw: $msg"))
     } yield client
 
     steward.acquire(bspClientRes)
   }
 
+  private def connectWithCsp(
+      steward: ResourceSupervisor[IO],
+  ): IO[CspServer[IO]] = {
+    import jsonrpclib.fs2.*
+    val client = for {
+      channel <- FS2Channel
+        .resource[IO](cancelTemplate = None)
+        .flatMap(_.withEndpoints(
+          ServerEndpoints(ZincCspClient()).toOption.getOrElse(sys.error("Couldn't create ServerEndpoints"))))
+      cspProcess <- fs2.io.process.ProcessBuilder("java", "-jar", "/home/rochala/Projects/sls/zinc-cli/out/zincCli/assembly.dest/out.jar").spawn[IO]
+      client <- ZincCspClient.makeCspClient(cspProcess, channel, msg => lspClient.logDebug(s"reporting raw CSP: $msg"))
+    } yield client
+
+    steward.acquire(client)
+  }
+
   def importMillBsp(rootPath: os.Path) = {
     val millExec = "./mill" // TODO if mising then findMillExec()
-    ProcessBuilder(millExec, "--import", "ivy:com.lihaoyi::mill-contrib-bloop:", "mill.contrib.bloop.Bloop/install")
+    ProcessBuilder(millExec, "mill.bsp.BSP/install")
       .withWorkingDirectory(fs2.io.file.Path.fromNioPath(rootPath.toNIO))
       .spawn[IO]
       .use { process =>

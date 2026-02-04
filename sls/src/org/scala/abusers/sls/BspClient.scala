@@ -17,25 +17,25 @@ import fs2.io.net.Network
 import jsonrpclib.fs2.{lsp => jsonrpclibLsp, *}
 import jsonrpclib.Endpoint
 import smithy4sbsp.bsp4s.BSPCodecs
+import fs2.io.process.Process
 
-def makeBspClient(path: String, channel: FS2Channel[IO], report: String => IO[Unit]): Resource[IO, BuildServer] =
-  Network[IO]
-    .connect(UnixSocketAddress(path))
-    .flatMap { socket =>
-      fs2.Stream
-        .eval(IO.never)
-        .concurrently(
-          socket.reads
-            .through(jsonrpclibLsp.decodeMessages)
-            .evalTap(m => report(m.toString))
-            .through(channel.inputOrBounce)
-        )
-        .concurrently(channel.output.through(jsonrpclibLsp.encodeMessages).through(socket.writes))
-        .compile
-        .drain
-        .guarantee(IO.consoleForIO.errorln("Terminating server"))
-        .background
-    }
+def makeBspClient(process: Process[IO], channel: FS2Channel[IO], report: String => IO[Unit]): Resource[IO, BuildServer] =
+  fs2.Stream
+    .eval(IO.never)
+    .concurrently(
+      channel.output
+        .through(jsonrpclibLsp.encodeMessages)
+        .through(process.stdin)
+    )
+    .concurrently(
+      process.stdout
+        .through(jsonrpclibLsp.decodeMessages)
+        .through(channel.inputOrBounce)
+    )
+    .compile
+    .drain
+    .guarantee(IO.consoleForIO.errorln("Terminating server"))
+    .background
     .as(
       BuildServer(
         BSPCodecs.clientStub(bsp.BuildServer, channel).toTry.get,
@@ -46,6 +46,8 @@ def makeBspClient(path: String, channel: FS2Channel[IO], report: String => IO[Un
     )
 
 def bspClientHandler(lspClient: SlsLanguageClient[IO], diagnosticManager: DiagnosticManager): List[Endpoint[IO]] =
+  import LoggingUtils.*
+
   BSPCodecs
     .serverEndpoints(
       new BuildClient[IO] {
