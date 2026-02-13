@@ -89,6 +89,7 @@ object sls extends CommonScalaModule {
     mvn"com.evolution::scache:5.1.2",
     mvn"org.typelevel::cats-parse:1.1.0",
     mvn"io.get-coursier:interface:1.0.28",
+    mvn"org.scala-lang::scala3-tasty-inspector:3.7.4",
   )
 
   def javacOptions = Seq(
