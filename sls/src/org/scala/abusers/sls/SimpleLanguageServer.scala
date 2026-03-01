@@ -10,6 +10,7 @@ import org.scala.abusers.profiling.runtime.ProfilingIOApp
 import org.typelevel.otel4s.metrics.Meter
 import org.typelevel.otel4s.trace.Tracer
 import cats.effect.std.Console
+import org.scala.abusers.csp.CspServer
 
 case class BuildServer(
     generic: bsp.BuildServer[IO],
@@ -48,11 +49,13 @@ object SimpleScalaServer extends ProfilingIOApp {
           fs2.io
             .stdin[IO](512)
             .through(jsonrpclib.fs2.lsp.decodeMessages)
+            .through(MessageTracer.traceIncoming)
             .through(channelWithEndpoints.inputOrBounce)
         )
         .concurrently(
           // STDOUT
           channelWithEndpoints.output
+            .through(MessageTracer.traceOutgoing)
             .through(jsonrpclib.fs2.lsp.encodeMessages[IO])
             .through(fs2.io.stdout[IO])
         )
@@ -67,7 +70,12 @@ object SimpleScalaServer extends ProfilingIOApp {
       pcProvider        <- PresentationCompilerProvider.instance.toResource
       textDocumentSync  <- TextDocumentSyncManager.instance.toResource
       bspClientDeferred <- Deferred[IO, BuildServer].toResource
-      bspStateManager   <- BspStateManager.instance(lspClient, BuildServer.suspend(bspClientDeferred.get)).toResource
+      cspClientDeferred <- Deferred[IO, CspServer[IO]].toResource
+      bspStateManager   <- BspStateManager.instance(
+                             lspClient,
+                             BuildServer.suspend(bspClientDeferred.get),
+                             SmithySuspend.sus(cspClientDeferred.get)
+                           ).toResource
       cancelTokens      <- IOCancelTokens.instance
       diagnosticManager <- DiagnosticManager.instance.toResource
       computationQueue  <- ComputationQueue.instance.toResource
@@ -77,6 +85,7 @@ object SimpleScalaServer extends ProfilingIOApp {
       diagnosticManager,
       steward,
       bspClientDeferred,
+      cspClientDeferred,
       lspClient,
       computationQueue,
       textDocumentSync,

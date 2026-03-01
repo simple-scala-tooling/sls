@@ -18,7 +18,7 @@ case class DocumentState(content: String, uri: URI) {
   def processEdits(edits: List[lsp.TextDocumentContentChangeEvent]): DocumentState =
     edits.toList
       .foldLeft(this) {
-        case (_, lsp.TextDocumentContentChangeEvent.Case0Case(incremental)) => applyEdit(incremental)
+        case (currentState, lsp.TextDocumentContentChangeEvent.Case0Case(incremental)) => currentState.applyEdit(incremental)
         case (_, lsp.TextDocumentContentChangeEvent.Case1Case(full))        => DocumentState(full.text, uri)
         case _                                                              => sys.error("Illegal State Exception")
       }

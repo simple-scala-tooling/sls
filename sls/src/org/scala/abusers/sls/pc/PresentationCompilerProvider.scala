@@ -39,6 +39,9 @@ class PresentationCompilerProvider(
 
   }
 
+  // FIXME: We need to implement logic that invalidates all dependent nodes
+  def invalidateCompilers(): IO[Unit] = compilers.clear.void
+
   private def freshPresentationCompilerClassloader(
       projectClasspath: Seq[os.Path],
       compilerClasspath: Seq[os.Path],
@@ -54,7 +57,9 @@ class PresentationCompilerProvider(
       compilerClasspath <- fetchPresentationCompilerJars(scalaVersion)
       classloader       <- freshPresentationCompilerClassloader(projectClasspath, compilerClasspath)
       pc <- serviceLoader.load(classOf[RawPresentationCompiler], PresentationCompilerProvider.classname, classloader)
-    } yield pc.newInstance("pc-id-replace", projectClasspath.map(_.toNIO).asJava, scalacOptions.asJava)
+      scalacOptions0 = scalacOptions ++ Seq("-Ywith-best-effort-tasty", "-Ybest-effort")
+      _ <- IO.consoleForIO.error(s"Creating presentation compiler with classpath: ${projectClasspath.map(_.toString).mkString(", ")} and options: ${scalacOptions0.mkString(" ")}")
+    } yield pc.newInstance("pc-id-replace", projectClasspath.map(_.toNIO).asJava, scalacOptions0.toList.asJava)
 
   def get(info: ScalaBuildTargetInformation)(using SynchronizedState): IO[RawPresentationCompiler] =
     compilers.getOrUpdate(info.buildTarget.id)(createPC(info.scalaVersion, info.classpath, info.compilerOptions))

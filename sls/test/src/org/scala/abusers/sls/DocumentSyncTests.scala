@@ -9,6 +9,7 @@ object TextDocumentSyncSuite extends SimpleIOSuite {
   class TestComputationQueue extends ComputationQueue {
     override def synchronously[A](computation: (SynchronizedState) ?=> IO[A]): IO[A] = computation
     def unsafeGetState: SynchronizedState                                            = summon[SynchronizedState]
+    override def pushSync(computation: IO[Unit]): IO[Unit] = IO.unit
   }
 
   given SynchronizedState = TestComputationQueue().unsafeGetState
@@ -97,6 +98,24 @@ object TextDocumentSyncSuite extends SimpleIOSuite {
     doc <- mgr.get(java.net.URI(uri))
     yield expect.eql(expected = "val x = 1\nval y = 2\n", found = doc.content)
 
+  }
+
+  test("double edit bug") { _ =>
+    val uri = "/home/Test.scala"
+    for mgr <- TextDocumentSyncManager.instance
+    _       <- mgr.didOpen(open(uri, "val crazyBug = 123\n  \n  \n//end"))
+    _ <- mgr.didChange(
+      DidChangeTextDocumentParams(
+        VersionedTextDocumentIdentifier(version = 1, uri = uri),
+        contentChanges = List(
+          makeChange(startLine = 2, startChar = 2, endLine = 2, endChar = 2, text = "\n  "),
+          makeChange(startLine = 2, startChar = 0, endLine = 2, endChar = 2, text = "")
+        ),
+      )
+    )
+
+    doc <- mgr.get(java.net.URI(uri))
+    yield expect.eql(expected = "val crazyBug = 123\n  \n\n  \n//end", found = doc.content)
   }
 
   test("applies incremental document change with multi line change") { _ =>

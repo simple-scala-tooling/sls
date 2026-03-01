@@ -12,15 +12,34 @@ import org.scala.abusers.pc.ScalaVersion
 import org.scala.abusers.sls.LoggingUtils.*
 
 import java.net.URI
+import bsp.SourcesParams
+import java.nio.file.Paths
+import org.scala.abusers.csp.CspServer
+import org.scala.abusers.csp.CompileOutput
 
-type ScalaBuildTargetInformation = (scalacOptions: ScalacOptionsItem, buildTarget: BuildTargetScalaBuildTarget)
+case class ScalaBuildTargetInformation(
+    scalacOptions: ScalacOptionsItem,
+    buildTarget: BuildTargetScalaBuildTarget,
+    sources: bsp.SourcesItem,
+) {
+  // Refactor this to some other way
+  val displayName = buildTarget.displayName.getOrElse("unknown-target") // log that there is no name ?
+  val classJarPath: java.nio.file.Path = Paths.get("./.sls/classes/")
+    .resolve(s"$displayName.jar").toAbsolutePath()
+
+  val classesDir: java.nio.file.Path = Paths.get("./.sls/classes/")
+    .resolve(s"$displayName/").toAbsolutePath()
+
+  val osLibClassJarPath = os.Path(classJarPath)
+  val osLibClassesDir = os.Path(classesDir)
+}
 
 object ScalaBuildTargetInformation {
   extension (buildTargetInformation: ScalaBuildTargetInformation) {
     def scalaVersion: ScalaVersion =
       ScalaVersion(buildTargetInformation.buildTarget.data.scalaVersion)
 
-    def classpath: List[os.Path] =
+    def classpath: List[os.Path] = List(buildTargetInformation.osLibClassesDir, buildTargetInformation.osLibClassJarPath) ++
       buildTargetInformation.scalacOptions.classpath.map(entry => os.Path(URI.create(entry)))
 
     def compilerOptions: List[String] = buildTargetInformation.scalacOptions.options
@@ -29,12 +48,12 @@ object ScalaBuildTargetInformation {
 
 object BspStateManager {
 
-  def instance(lspClient: SlsLanguageClient[IO], bspServer: BuildServer): IO[BspStateManager] =
+  def instance(lspClient: SlsLanguageClient[IO], bspServer: BuildServer, cspServer: CspServer[IO]): IO[BspStateManager] =
     // We should track this in progress bar. Think of this as `Import Build`
     for {
       sourcesToTargets <- AtomicCell[IO].of(Map[URI, ScalaBuildTargetInformation]())
       buildTargets     <- Ref.of[IO, Set[ScalaBuildTargetInformation]](Set.empty)
-    } yield BspStateManager(lspClient, bspServer, sourcesToTargets, buildTargets)
+    } yield BspStateManager(lspClient, bspServer, cspServer, sourcesToTargets, buildTargets)
 }
 
 /** Class responsible for tracking and handling map between file and target we want to compile it against
@@ -45,11 +64,25 @@ object BspStateManager {
   */
 class BspStateManager(
     lspClient: SlsLanguageClient[IO],
-    val bspServer: BuildServer,
+    bspServer: BuildServer,
+    cspServer: CspServer[IO],
     sourcesToTargets: AtomicCell[IO, Map[URI, ScalaBuildTargetInformation]],
     targets: Ref[IO, Set[ScalaBuildTargetInformation]],
 ) {
   import ScalaBuildTargetInformation.*
+
+  def compileWithCSP(uri: URI)(using SynchronizedState): IO[CompileOutput] = {
+    get(uri).flatMap { info =>
+      cspServer.compile(
+        scopeId = info.buildTarget.displayName.getOrElse("default"),
+        classpath = info.classpath.map(_.toString),
+        sourcePath = info.sources._2.map(p => URI(p.uri.value).getPath()),
+        scalaVersion = org.scala.abusers.csp.ScalaVersion(info.buildTarget.data.scalaVersion),
+        scalacOptions = info.scalacOptions.options,
+        javacOptions = Nil
+      )
+    }
+  }
 
   def importBuild =
     for {
@@ -70,8 +103,9 @@ class BspStateManager(
       workspaceBuildTargets <- bspServer.generic.workspaceBuildTargets()
       scalacOptions <- bspServer.scala.buildTargetScalacOptions(
         ScalacOptionsParams(targets = workspaceBuildTargets.targets.map(_.id))
-      ) //
-    } yield buildTargetToScalaTargets(workspaceBuildTargets, scalacOptions)
+      )
+      targetSources <- bspServer.generic.buildTargetSources(SourcesParams(workspaceBuildTargets.targets.map(_.id)))
+    } yield buildTargetToScalaTargets(workspaceBuildTargets, scalacOptions, targetSources)
       .groupMapReduce(_.buildTarget.id)(identity)(byScalaVersion.max)
       .values
       .toSet
@@ -85,15 +119,21 @@ class BspStateManager(
       )
     yield inverseSources.targets
 
+  private def isSyntheticTarget(target: bsp.BuildTarget): Boolean =
+    target.id.uri.value.contains("mill-synthetic-root-target")
+
   private def buildTargetToScalaTargets(
-      targets: bsp.WorkspaceBuildTargetsResult,
+      targets0: bsp.WorkspaceBuildTargetsResult,
       scalacOptions: bsp.scala_.ScalacOptionsResult,
+      sources: bsp.SourcesResult,
   ): Set[ScalaBuildTargetInformation] = {
+    val targets = targets0.targets.filterNot(isSyntheticTarget)
     val scalacOptions0 = scalacOptions.items.map(item => item.target -> item).toMap
-    val (mismatchedTargets, zippedTargets) = targets.targets.partitionMap { target =>
-      scalacOptions0.get(target.id) match {
-        case Some(scalacOptionsItem) if target.project.scala.isDefined =>
-          Right(scalacOptions = scalacOptionsItem, buildTarget = target.project.scala.get)
+    val sources0 = sources.items.map(item => item.target -> item).toMap
+    val (mismatchedTargets, zippedTargets) = targets.partitionMap { target =>
+      (scalacOptions0.get(target.id), sources0.get(target.id)) match {
+        case (Some(scalacOptionsItem), Some(sources)) if target.project.scala.isDefined =>
+          Right(ScalaBuildTargetInformation(scalacOptions = scalacOptionsItem, buildTarget = target.project.scala.get, sources = sources))
         case _ => Left(target.id)
       }
     }
