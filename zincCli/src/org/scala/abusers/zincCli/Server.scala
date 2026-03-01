@@ -47,6 +47,11 @@ class ZincCliServer extends csp.CspServer[IO] {
 
   val outputDir = Files.createTempDirectory("zinc-classes-directory")
 
+  Runtime.getRuntime.addShutdownHook(new Thread(() => { // to i tak trzeba poprawic bo nie ma analizy etc
+    System.err.println(s"Deleting output directory $outputDir")
+    sbt.io.IO.delete(outputDir.toFile)
+  }))
+
   override def compile(
       scopeId: String,
       classpath: List[String],
@@ -116,12 +121,12 @@ class ZincCliServer extends csp.CspServer[IO] {
       // val maybeSignatureAnalysisJar = if signatureAnalysisJar.path.toFile.exists() then Some(signatureAnalysisJar.path) else None
 
       val inputs = incrementalCompiler.inputs(
-        classpath = (PlainVirtualFile(outputClassJar.temp) +: classpath0).toArray,
+        classpath = classpath0.toArray,
         sources = sources.toArray,
         classesDirectory = outputClassJar.temp,
         earlyJarPath = None,
         // scalacOptions = Nil.toArray, // List("-Ystop-after:pickler", s"-Xearly-tasty-output:${classesDirectory0.resolve("tastyFiles.jar")}").toArray,
-        scalacOptions = List("-Ybest-effort", "-Ywith-best-effort-tasty", "-Ystop-before:instrumentCoverage").toArray,
+        scalacOptions = List("-Ybest-effort", "-Ywith-best-effort-tasty").toArray,
         javacOptions = javacOptions.toArray,
         maxErrors = Int.MaxValue,
         sourcePositionMappers = Array(),
@@ -138,13 +143,35 @@ class ZincCliServer extends csp.CspServer[IO] {
 
       val compilationResult = incrementalCompiler.compile(inputs, ZincCliLogger())
       ZincCliLogger().info(() => compilationResult.toString())
-      if compilationResult.hasModified then
-        val analysisContents = AnalysisContents.create(compilationResult.analysis(), compilationResult.setup())
-        analysisStore.set(analysisContents)
-        outputClassJar.cleanAndMoveToFinalDest
+      val changedFilesMap: Map[String, List[String]] =
+        if compilationResult.hasModified then
+          val previousStamps: Map[xsbti.VirtualFileRef, xsbti.compile.analysis.Stamp] =
+            val prev = analysisStore.get()
+            if prev.isPresent then prev.get().getAnalysis().asInstanceOf[Analysis].stamps.sources
+            else Map.empty
+
+          val analysisContents = AnalysisContents.create(compilationResult.analysis(), compilationResult.setup())
+          analysisStore.set(analysisContents)
+          outputClassJar.cleanAndMoveToFinalDest
+          val analysis = compilationResult.analysis().asInstanceOf[Analysis]
+          val currentStamps = analysis.stamps.sources
+
+          val changedSources = currentStamps.filter { case (src, stamp) =>
+            previousStamps.get(src) match
+              case Some(prevStamp) => prevStamp != stamp
+              case None => true // new source
+          }.keySet
+
+          changedSources.map { src =>
+            val classNames = analysis.relations.classNames(src)
+            val entries = classNames.toList.map(_.replace('.', '/') + ".betasty")
+            src.id -> entries
+          }.toMap
+        else Map.empty
+      changedFilesMap
     }
 
-    result >> IO(csp.CompileOutput(outputClassJar.path.toString))
+    result.map(changedFiles => csp.CompileOutput(outputClassJar.path.toString, changedFiles))
   }
 
 }

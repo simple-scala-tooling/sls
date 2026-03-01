@@ -71,6 +71,8 @@ class BspStateManager(
 ) {
   import ScalaBuildTargetInformation.*
 
+  def getAllTargets: IO[Set[ScalaBuildTargetInformation]] = targets.get
+
   def compileWithCSP(uri: URI)(using SynchronizedState): IO[CompileOutput] = {
     get(uri).flatMap { info =>
       cspServer.compile(

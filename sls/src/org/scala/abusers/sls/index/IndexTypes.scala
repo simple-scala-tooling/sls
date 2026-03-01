@@ -9,6 +9,29 @@ object SymbolId:
 
 extension (id: SymbolId) def value: String = id
 
+/** Converts a SemanticDB symbol (e.g. `scala/collection/immutable/List#`)
+  * to the dotted fullName format used by TASTy (e.g. `scala.collection.immutable.List`).
+  */
+def semanticDbToFullName(sdbSymbol: String): String =
+  sdbSymbol.replaceAll("\\(\\+?\\d*\\)", "").stripSuffix("#").stripSuffix(".")
+    .replace("#", ".").replace("/", ".")
+
+/** Generate candidate SymbolIds for a dotted name, covering the class/object ambiguity.
+  * TASTy uses `$` suffix for objects (e.g. `Test$`), but SemanticDB doesn't.
+  * For `com.example.Test.dupa`, we also try `com.example.Test$.dupa`.
+  */
+def symbolIdCandidates(dottedName: String): List[SymbolId] =
+  val base = SymbolId(dottedName)
+  val lastDot = dottedName.lastIndexOf('.')
+  if lastDot <= 0 then List(base)
+  else
+    val ownerEnd = dottedName.lastIndexOf('.', lastDot - 1)
+    if ownerEnd <= 0 then List(base)
+    else
+      val owner = dottedName.substring(ownerEnd + 1, lastDot)
+      val withDollar = dottedName.substring(0, ownerEnd + 1) + owner + "$" + dottedName.substring(lastDot)
+      List(base, SymbolId(withDollar)).distinct
+
 case class Location(
     uri: URI,
     startLine: Int,

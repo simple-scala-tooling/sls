@@ -6,35 +6,39 @@ import weaver.*
 object CamelCaseUtilsSpec extends SimpleIOSuite {
 
   test("AbstractListType extracts to alt") {
-    IO(expect(CamelCaseUtils.extractCamelCase("AbstractListType") == "alt"))
+    IO(expect(CamelCaseUtils.extractPascalCase("AbstractListType") == "alt"))
   }
 
   test("ListBuffer extracts to lb") {
-    IO(expect(CamelCaseUtils.extractCamelCase("ListBuffer") == "lb"))
+    IO(expect(CamelCaseUtils.extractPascalCase("ListBuffer") == "lb"))
   }
 
-  test("map extracts to m") {
-    IO(expect(CamelCaseUtils.extractCamelCase("map") == "m"))
+  test("camelCase 'map' extracts to empty") {
+    IO(expect(CamelCaseUtils.extractPascalCase("map") == ""))
   }
 
   test("IOException extracts to ie (IO is one word, Exception is another)") {
-    IO(expect(CamelCaseUtils.extractCamelCase("IOException") == "ie"))
+    IO(expect(CamelCaseUtils.extractPascalCase("IOException") == "ie"))
   }
 
   test("HTMLParser extracts to hp") {
-    IO(expect(CamelCaseUtils.extractCamelCase("HTMLParser") == "hp"))
+    IO(expect(CamelCaseUtils.extractPascalCase("HTMLParser") == "hp"))
   }
 
-  test("single char x extracts to x") {
-    IO(expect(CamelCaseUtils.extractCamelCase("x") == "x"))
+  test("camelCase single char 'x' extracts to empty") {
+    IO(expect(CamelCaseUtils.extractPascalCase("x") == ""))
   }
 
   test("all caps XML extracts to x") {
-    IO(expect(CamelCaseUtils.extractCamelCase("XML") == "x"))
+    IO(expect(CamelCaseUtils.extractPascalCase("XML") == "x"))
   }
 
   test("empty string extracts to empty") {
-    IO(expect(CamelCaseUtils.extractCamelCase("") == ""))
+    IO(expect(CamelCaseUtils.extractPascalCase("") == ""))
+  }
+
+  test("camelCase 'indexOf' extracts to empty") {
+    IO(expect(CamelCaseUtils.extractPascalCase("indexOf") == ""))
   }
 
   test("isCamelCaseQuery returns true for ALT") {

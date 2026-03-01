@@ -115,3 +115,15 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 5. Don't write tests that test the compiler
 
 Examples are testing match exhaustivity, typesystem etc.
+
+6. Library API discovery should always use cellar.
+
+cellar get <coordinate> <fqn> # single symbol
+cellar get-source <coordinate> <fqn> # source code
+cellar list <coordinate> <package> # explore a package
+cellar search <coordinate> <query> # find by name
+cellar deps <coordinate> # dependency tree
+
+Coordinates must be explicit: group:artifact_3:version
+
+Always favor usage of cellar before metals-mcp

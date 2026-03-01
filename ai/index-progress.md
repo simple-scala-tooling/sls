@@ -12,5 +12,13 @@
 
 - **2.1** TastyIndexer — TASTy Inspector-based indexer with tree walking
 
-## Next
 - **2.2** BytecodeIndexer — ASM-based bytecode indexer for Scala 2/Java JARs
+
+- **3.1** CSP CompileOutput — added changedFiles field (Smithy + zinc Server extraction)
+
+- **3.2** IndexManager — index lifecycle manager (dependency/project indexing, incremental updates, file deletion)
+
+- **3.3** IndexManager wired into server lifecycle (Smithy ops, initialized background indexing, didSave index update, stub handlers)
+
+## Next
+- **5.1–5.6** LSP feature handlers (references, workspace/symbol, rename, type hierarchy, didDeleteFiles)
