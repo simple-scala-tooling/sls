@@ -6,6 +6,10 @@ import jsonrpclib.fs2.*
 import jsonrpclib.smithy4sinterop.ClientStub
 import org.scala.abusers.pc.IOCancelTokens
 import org.scala.abusers.pc.PresentationCompilerProvider
+import org.scala.abusers.profiling.runtime.ProfilingIOApp
+import org.typelevel.otel4s.metrics.Meter
+import org.typelevel.otel4s.trace.Tracer
+import cats.effect.std.Console
 
 case class BuildServer(
     generic: bsp.BuildServer[IO],
@@ -23,13 +27,14 @@ object BuildServer {
   )
 }
 
-object SimpleScalaServer extends IOApp.Simple {
+object SimpleScalaServer extends ProfilingIOApp {
   import jsonrpclib.smithy4sinterop.ServerEndpoints
 
-  def run: IO[Unit] =
-    runResource.useForever
+  override def applicationName: String = "simple-language-server"
 
-  private def runResource =
+  override given console: Console[IO] = ErrorOutConsole()
+
+  override def program(using meter: Meter[IO], tracer: Tracer[IO]) =
     for {
       fs2Channel           <- FS2Channel.resource[IO](cancelTemplate = LSPCancelRequest.cancelTemplate.some)
       client               <- ClientStub(SlsLanguageClient, fs2Channel).liftTo[IO].toResource
@@ -53,10 +58,10 @@ object SimpleScalaServer extends IOApp.Simple {
         )
         .compile
         .drain
-        .background
+        .toResource
     } yield ()
 
-  private def server(lspClient: SlsLanguageClient[IO]): Resource[IO, ServerImpl] =
+  private def server(lspClient: SlsLanguageClient[IO])(using Tracer[IO], Meter[IO]): Resource[IO, ServerImpl] =
     for {
       steward           <- ResourceSupervisor[IO]
       pcProvider        <- PresentationCompilerProvider.instance.toResource
@@ -66,5 +71,15 @@ object SimpleScalaServer extends IOApp.Simple {
       cancelTokens      <- IOCancelTokens.instance
       diagnosticManager <- DiagnosticManager.instance.toResource
       computationQueue  <- ComputationQueue.instance.toResource
-    } yield ServerImpl(pcProvider, cancelTokens, diagnosticManager, steward, bspClientDeferred, lspClient, computationQueue, textDocumentSync, bspStateManager)
+    } yield ServerImpl(
+      pcProvider,
+      cancelTokens,
+      diagnosticManager,
+      steward,
+      bspClientDeferred,
+      lspClient,
+      computationQueue,
+      textDocumentSync,
+      bspStateManager,
+    )
 }

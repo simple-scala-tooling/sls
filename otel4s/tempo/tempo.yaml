@@ -1,0 +1,44 @@
+server:
+  http_listen_port: 3200
+
+distributor:
+  receivers:                           # this configuration will listen on all ports and protocols that tempo is capable of.
+    otlp:
+      protocols:
+        http:
+          endpoint: 0.0.0.0:4318
+        grpc:
+          endpoint: 0.0.0.0:4317
+
+metrics_generator:
+
+  registry:
+    external_labels:
+      source: tempo
+      cluster: docker-compose
+  storage:
+    path: /tmp/tempo/generator/wal
+    remote_write:
+      - url: http://prometheus:9090/api/v1/write
+        send_exemplars: true
+
+  processor:
+    span_metrics:
+      dimensions:
+        - service.name
+        - span.name
+        - span.kind
+        - status.code
+
+storage:
+  trace:
+    backend: local                     # backend configuration to use
+    wal:
+      path: /tmp/tempo/wal             # where to store the the wal locally
+    local:
+      path: /tmp/tempo/blocks
+
+overrides:
+  defaults:
+    metrics_generator:
+      processors: [span-metrics] # enables metrics generator

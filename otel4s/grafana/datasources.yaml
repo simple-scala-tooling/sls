@@ -1,0 +1,60 @@
+# Configuration file version
+apiVersion: 1
+
+# List of data sources to insert/update depending on what's
+# available in the database.
+datasources:
+  # <string, required> Sets the name you use to refer to
+  # the data source in panels and queries.
+  - id: 1
+    uid: f13f44c8-69b1-48ae-a55c-90f49179283c
+    orgId: 1
+    name: prometheus
+    type: prometheus
+    typeName: Prometheus
+    typeLogoUrl: "/public/app/plugins/datasource/prometheus/img/prometheus_logo.svg"
+    access: proxy
+    url: http://prometheus:9090
+    user: ''
+    database: ''
+    basicAuth: false
+    basicAuthUser: ''
+    isDefault: false
+    jsonData:
+      httpMethod: POST
+    readOnly: false
+  - id: 2
+    uid: dezft048pwcg0d
+    orgId: 1
+    type: grafana-pyroscope-datasource
+    name: Pyroscope
+    typeLogoUrl: "/public/plugins/grafana-pyroscope-datasource/img/grafana_pyroscope_icon.svg"
+    access: proxy
+    url: http://pyroscope:4040
+    user: ''
+    database: ''
+    basicAuth: false
+    basicAuthUser: ''
+    isDefault: false
+    jsonData:
+      pdcInjected: false
+    readOnly: false
+  - id: 3
+    uid: cezfsujm3zrb4d
+    orgId: 1
+    name: Tempo
+    type: tempo
+    typeLogoUrl: "/public/plugins/tempo/img/tempo_logo.svg"
+    access: proxy
+    url: http://tempo:3200
+    user: ''
+    database: ''
+    basicAuth: false
+    basicAuthUser: ''
+    withCredentials: false
+    isDefault: false
+    jsonData:
+      pdcInjected: false
+      tracesToProfiles:
+        datasourceUid: dezft048pwcg0d
+    readOnly: false
