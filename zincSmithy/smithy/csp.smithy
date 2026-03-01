@@ -92,6 +92,17 @@ list JavacOptions {
 structure CompileOutput {
   @required
   outputJar: String
+  @required
+  changedFiles: ChangedFilesMap
+}
+
+map ChangedFilesMap {
+  key: String
+  value: ProductFiles
+}
+
+list ProductFiles {
+  member: String
 }
 
 structure ScalaVersion {

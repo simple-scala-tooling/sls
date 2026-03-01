@@ -1,6 +1,6 @@
 //| mill-repositories: ["https://central.sonatype.com/repository/maven-snapshots/"]
 //| mvnDeps:
-//| - com.disneystreaming.smithy4s::smithy4s-mill-codegen-plugin::0.19.0-M2-23-93ae7ff8-SNAPSHOT
+//| - com.disneystreaming.smithy4s::smithy4s-mill-codegen-plugin::0.18.47-0-6b7ca6ac-20260208-2323-SNAPSHOT
 //| - com.goyeau::mill-scalafix::0.6.0
 
 import mill.javalib.publish.Developer
@@ -28,14 +28,13 @@ trait CommonScalaModule extends ScalaModule with ScalafixModule {
     ) ++ super.repositoriesTask()
   }
 
-  def scalaVersion = "3.7.4"
+  def scalaVersion = "3.8.1"
   def scalacOptions = Seq("-Wunused:all")
 }
 
 object slsSmithy extends CommonScalaModule with Smithy4sModule {
 
   override def mvnDeps = Seq(
-    mvn"com.disneystreaming.alloy:alloy-core:0.3.36", // Conflict with alloy
     mvn"com.disneystreaming.smithy4s::smithy4s-core:${smithy4sVersion()}",
     mvn"tech.neander:jsonrpclib-smithy:$jsonrpcVersion",
     mvn"io.github.simple-scala-tooling:lsp-smithy-definitions:1f4b6e9",
@@ -70,7 +69,15 @@ object sls extends CommonScalaModule {
 
   def mainClass = Some("org.scala.abusers.sls.SimpleScalaServer")
 
-  def moduleDeps: Seq[JavaModule] = Seq(slsSmithy, profilingRuntime, zincCli)
+  def moduleDeps: Seq[JavaModule] = Seq(slsSmithy, profilingRuntime, zincSmithy)
+
+  override def resources = Task {
+    val zincJar = zincCli.assembly().path
+    val dest = Task.dest / "zinc-cli"
+    os.makeDir.all(dest)
+    os.copy(zincJar, dest / "zincCli.jar", replaceExisting = true)
+    super.resources() ++ Seq(PathRef(Task.dest))
+  }
 
   override def forkArgs = Seq(
     "-Dcats.effect.trackFiberContext=true"
@@ -89,7 +96,8 @@ object sls extends CommonScalaModule {
     mvn"com.evolution::scache:5.1.2",
     mvn"org.typelevel::cats-parse:1.1.0",
     mvn"io.get-coursier:interface:1.0.28",
-    mvn"org.scala-lang::scala3-tasty-inspector:3.7.4",
+    mvn"org.scala-lang::scala3-tasty-inspector:3.8.1",
+    mvn"org.ow2.asm:asm:9.6",
   )
 
   def javacOptions = Seq(
@@ -107,7 +115,6 @@ object sls extends CommonScalaModule {
 object zincSmithy extends CommonScalaModule with Smithy4sModule with PublishModule {
 
   override def mvnDeps = Seq(
-    mvn"com.disneystreaming.alloy:alloy-core:0.3.36", // Conflict with alloy
     mvn"com.disneystreaming.smithy4s::smithy4s-core:${smithy4sVersion()}",
     mvn"tech.neander:jsonrpclib-smithy:$jsonrpcVersion",
   )
@@ -171,7 +178,7 @@ object zincCli extends CommonScalaModule with PublishModule {
     mvn"org.typelevel::cats-effect:3.6.3",
     mvn"co.fs2::fs2-io:3.13.0-M2",
     mvn"io.scalaland::chimney:1.8.1",
-    mvn"org.scala-sbt:zinc_2.13:1.10.8",
+    mvn"org.scala-sbt:zinc_2.13:1.12.0",
     mvn"io.scalaland::chimney-java-collections:1.8.1",
     mvn"tech.neander::jsonrpclib-fs2::$jsonrpcVersion",
     mvn"ch.qos.logback:logback-classic:1.4.14",

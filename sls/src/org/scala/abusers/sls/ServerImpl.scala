@@ -35,6 +35,7 @@ import scala.meta.pc.VirtualFileParams
 
 import LoggingUtils.*
 import ScalaBuildTargetInformation.*
+import index.value
 import scala.meta.pc.RawPresentationCompiler
 import org.scala.abusers.csp.CspServer
 import jsonrpclib.smithy4sinterop.ServerEndpoints
@@ -50,8 +51,12 @@ class ServerImpl(
     computationQueue: ComputationQueue,
     textDocumentSyncManager: TextDocumentSyncManager,
     bspStateManager: BspStateManager,
+    indexManager: index.IndexManager,
+    symbolIndex: index.SymbolIndex,
 )(using Tracer[IO], Meter[IO])
     extends SlsLanguageServer[IO] {
+
+  private val logger = org.slf4j.LoggerFactory.getLogger(this.getClass)
 
   /* There can only be one client for one language-server */
 
@@ -89,7 +94,19 @@ class ServerImpl(
   }
 
   def initialized(params: lsp.InitializedParams): IO[Unit] =
-    computationQueue.synchronously(bspStateManager.importBuild)
+    computationQueue.synchronously {
+      for {
+        _ <- bspStateManager.importBuild
+        targets <- bspStateManager.getAllTargets
+        _ <- (indexManager.indexDependencies(targets) *>
+              indexManager.indexExistingProjectArtifacts(targets))
+              .handleErrorWith { e =>
+                IO(logger.error("Background indexing failed", e)) *>
+                lspClient.logMessage(s"Indexing failed: ${e.getMessage}")
+              }
+              .start
+      } yield ()
+    }
 
   def textDocumentCompletionOp(params: lsp.CompletionParams): IO[lsp.TextDocumentCompletionOpOutput] =
     computationQueue.synchronously {
@@ -188,6 +205,7 @@ class ServerImpl(
     override def text(): String       = content
     override def token(): CancelToken = token0
     override def uri(): URI           = uri0
+    override def shouldReturnDiagnostics(): Boolean = true
   }
 
   given Schema[List[lsp.InlayHint]] = Schema.list(lsp.InlayHint.schema)
@@ -266,7 +284,8 @@ class ServerImpl(
       _    <- textDocumentSyncManager.didSave(params)
       info <- bspStateManager.get(uri)
       _    <- bspStateManager.compileWithCSP(uri).flatMap { res =>
-                updateOutputClasspath(info, os.Path(res.outputJar))
+                updateOutputClasspath(info, os.Path(res.outputJar)) *>
+                indexManager.onCompilationComplete(info, res).handleError(e => lspClient.logMessage(s"Failed to update index after compilation: ${e.getMessage()}"))
               }.timeout(60.seconds).start
     } yield ()
 
@@ -310,6 +329,12 @@ class ServerImpl(
               .enableOptionDefaultsToNone
               .transform
             _ <- diagnosticManager.didChange(lspClient, uri.toString, lspDiags)
+            _ <- IO.interruptible(pc.semanticdbTextDocument(uri, textDocument.content))
+                   .flatMap { bytes =>
+                     val (syms, refs) = index.SemanticdbIndexer.indexDocument(uri, bytes, info.displayName)
+                     symbolIndex.project.updateFiles(Map(uri -> (syms, refs)))
+                   }
+                   .handleErrorWith(e => IO(logger.warn(s"SemanticDB index update failed for $uri: ${e.getMessage}")))
           } yield ()
         }
       }
@@ -326,6 +351,105 @@ class ServerImpl(
       }
   }
 
+  def textDocumentReferencesOp(params: lsp.ReferenceParams): IO[lsp.TextDocumentReferencesOpOutput] =
+    computationQueue.synchronously {
+      handleReferences(params)
+    }
+
+  private def handleReferences(params: lsp.ReferenceParams)(using SynchronizedState): IO[lsp.TextDocumentReferencesOpOutput] = {
+    val uri = URI(params.textDocument.uri)
+    val position = params.position
+    cancelTokens.mkCancelToken.use { token =>
+      for {
+        docState <- textDocumentSyncManager.get(uri)
+        offsetParams = toOffsetParams(position, docState, token)
+        info <- bspStateManager.get(uri)
+        pc <- pcProvider.get(info)
+        defResult <- IO.interruptible(pc.definition(offsetParams))
+        pcSymbol = defResult.symbol()
+        baseName = index.semanticDbToFullName(pcSymbol)
+        candidates = index.symbolIdCandidates(baseName)
+        _ <- IO(logger.info(s"References: pcSymbol=$pcSymbol, candidates=${candidates.map(_.value)}"))
+        refs <- candidates.foldLeft(IO.pure(List.empty[index.SymbolReference])) { (acc, id) =>
+          acc.flatMap(prev => symbolIndex.getReferences(id).map { r =>
+            logger.info(s"References for ${id.value}: ${r.size} refs")
+            prev ++ r
+          })
+        }
+        _ <- symbolIndex.project.debugReferenceKeys.flatMap(keys =>
+          IO(logger.info(s"All reference keys in index (${keys.size}): ${keys.take(20).map(_.value)}"))
+        )
+      } yield lsp.TextDocumentReferencesOpOutput(
+        if refs.isEmpty then None
+        else Some(refs.map(ref => lsp.Location(
+          uri = ref.location.uri.toString,
+          range = lsp.Range(
+            start = lsp.Position(ref.location.startLine, ref.location.startCol),
+            end = lsp.Position(ref.location.endLine, ref.location.endCol),
+          )
+        )))
+      )
+    }
+  }
+
+  def workspaceSymbolOp(params: lsp.WorkspaceSymbolParams): IO[lsp.WorkspaceSymbolOpOutput] =
+    IO.pure(lsp.WorkspaceSymbolOpOutput(None))
+
+  def textDocumentRenameOp(params: lsp.RenameParams): IO[lsp.TextDocumentRenameOpOutput] =
+    IO.pure(lsp.TextDocumentRenameOpOutput(None))
+
+  def textDocumentPrepareRenameOp(params: lsp.PrepareRenameParams): IO[lsp.TextDocumentPrepareRenameOpOutput] =
+    IO.pure(lsp.TextDocumentPrepareRenameOpOutput(None))
+
+  def textDocumentImplementationOp(params: lsp.ImplementationParams): IO[lsp.TextDocumentImplementationOpOutput] =
+    IO.pure(lsp.TextDocumentImplementationOpOutput(None))
+
+  def textDocumentPrepareTypeHierarchyOp(params: lsp.TypeHierarchyPrepareParams): IO[lsp.TextDocumentPrepareTypeHierarchyOpOutput] =
+    IO.pure(lsp.TextDocumentPrepareTypeHierarchyOpOutput(None))
+
+  def typeHierarchySupertypesOp(params: lsp.TypeHierarchySupertypesParams): IO[lsp.TypeHierarchySupertypesOpOutput] =
+    IO.pure(lsp.TypeHierarchySupertypesOpOutput(None))
+
+  def typeHierarchySubtypesOp(params: lsp.TypeHierarchySubtypesParams): IO[lsp.TypeHierarchySubtypesOpOutput] =
+    IO.pure(lsp.TypeHierarchySubtypesOpOutput(None))
+
+  def workspaceDidDeleteFiles(params: lsp.DeleteFilesParams): IO[Unit] = {
+    val uris = params.files.map(f => URI.create(f.uri)).toSet
+    indexManager.onFilesDeleted(uris)
+  }
+
+  def slsDebugIndexOp(params: Option[SlsDebugIndexParams]): IO[SlsDebugIndexOpOutput] = {
+    val query = params.flatMap(_.query).filter(_.nonEmpty)
+    (for {
+      projCount <- symbolIndex.project.symbolCount
+      depCount  <- symbolIndex.dependency.symbolCount
+      fileCount <- symbolIndex.project.fileCount
+      jarCount  <- symbolIndex.dependency.jarCount
+      matching  <- query.fold(IO.pure(List.empty[index.IndexedSymbol]))(symbolIndex.searchSymbols)
+    } yield SlsDebugIndexOpOutput(
+      SlsDebugIndexResult(
+        projectSymbolCount = Some(projCount),
+        dependencySymbolCount = Some(depCount),
+        projectFileCount = Some(fileCount),
+        indexedJarCount = Some(jarCount),
+        matchingSymbols = Some(matching.take(100).map(toDebugSymbol)),
+      ).some
+    )).timeout(10.seconds)
+  }
+
+  private def toDebugSymbol(s: index.IndexedSymbol): DebugSymbol =
+    DebugSymbol(
+      id = s.id.value,
+      name = s.name,
+      kind = s.kind.toString,
+      owner = s.owner.map(_.value),
+      origin = Some(s.origin match {
+        case index.SymbolOrigin.ProjectTasty(bt, uri) => s"project:$bt ($uri)"
+        case index.SymbolOrigin.DependencyClassfile(jar) => s"dep:$jar"
+      }),
+      location = s.location.map(l => s"${l.uri}:${l.startLine}:${l.startCol}"),
+    )
+
   private def serverCapabilities: lsp.ServerCapabilities =
     lsp.ServerCapabilities(
       textDocumentSync = lsp.TextDocumentSyncUnion.case1(lsp.TextDocumentSyncKind.INCREMENTAL).some,
@@ -335,6 +459,7 @@ class ServerImpl(
         .SignatureHelpOptions(None, List("(", "[", "{").some, List(",").some)
         .some, // FIXME: signature help on List triggers cats effect because of extension methods
       definitionProvider = lsp.BooleanOrDefinitionOptions.case1(lsp.DefinitionOptions(None)).some,
+      referencesProvider = lsp.BooleanOrReferenceOptions.case1(lsp.ReferenceOptions(None)).some,
       inlayHintProvider = lsp.BooleanOrInlayHintOptions.case1(lsp.InlayHintOptions(resolveProvider = false.some)).some,
     )
 
@@ -365,12 +490,28 @@ class ServerImpl(
         .resource[IO](cancelTemplate = None)
         .flatMap(_.withEndpoints(
           ServerEndpoints(ZincCspClient()).toOption.getOrElse(sys.error("Couldn't create ServerEndpoints"))))
-      cspProcess <- fs2.io.process.ProcessBuilder("java", "-jar", "/home/rochala/Projects/sls/zinc-cli/out/zincCli/assembly.dest/out.jar").spawn[IO]
+      zincJar <- extractZincCliJar
+      cspProcess <- fs2.io.process.ProcessBuilder("java", "-jar", zincJar.toString).spawn[IO]
       client <- ZincCspClient.makeCspClient(cspProcess, channel, msg => lspClient.logDebug(s"reporting raw CSP: $msg"))
     } yield client
 
     steward.acquire(client)
   }
+
+  private def extractZincCliJar: Resource[IO, fs2.io.file.Path] =
+    Resource.make(
+      for {
+        tempDir <- IO(java.nio.file.Files.createTempDirectory("sls-zinc"))
+        jarPath  = fs2.io.file.Path.fromNioPath(tempDir.resolve("zincCli.jar"))
+        inputStream <- IO(
+          Option(getClass.getClassLoader.getResourceAsStream("zinc-cli/zincCli.jar"))
+            .getOrElse(sys.error("zincCli.jar not found in classpath resources"))
+        )
+        _ <- fs2.io.readInputStream(IO.pure(inputStream), 8192)
+              .through(Files[IO].writeAll(jarPath))
+              .compile.drain
+      } yield jarPath
+    )(jarPath => IO(os.remove.all(os.Path(jarPath.toNioPath.getParent))))
 
   def importMillBsp(rootPath: os.Path) = {
     val millExec = "./mill" // TODO if mising then findMillExec()

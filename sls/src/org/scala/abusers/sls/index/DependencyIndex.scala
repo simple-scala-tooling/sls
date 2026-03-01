@@ -49,6 +49,9 @@ class DependencyIndex private (state: Ref[IO, DependencyIndex.State]) {
     state.get.map { s =>
       s.jarFilters.get(jarPath).exists(_.mightContain(name.toLowerCase))
     }
+
+  def symbolCount: IO[Int] = state.get.map(_.symbols.size)
+  def jarCount: IO[Int] = state.get.map(_.jarFilters.size)
 }
 
 object DependencyIndex {
@@ -94,7 +97,7 @@ object DependencyIndex {
       val nameSet = nameTrie.get(lower).getOrElse(Set.empty)
       nameTrie = nameTrie.insert(lower, nameSet + sym.id)
 
-      val cc = CamelCaseUtils.extractCamelCase(sym.name)
+      val cc = CamelCaseUtils.extractPascalCase(sym.name)
       if cc.nonEmpty then {
         val ccSet = camelCaseTrie.get(cc).getOrElse(Set.empty)
         camelCaseTrie = camelCaseTrie.insert(cc, ccSet + sym.id)

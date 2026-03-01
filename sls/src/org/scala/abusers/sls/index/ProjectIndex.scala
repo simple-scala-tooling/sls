@@ -48,19 +48,31 @@ class ProjectIndex private (state: Ref[IO, ProjectIndex.State]) {
 
   def updateFiles(files: Map[URI, (List[IndexedSymbol], List[SymbolReference])]): IO[Unit] =
     state.update { s =>
-      files.foldLeft(s) { case (state, (uri, (symbols, refs))) =>
+      val totalRefs = files.values.map(_._2.size).sum
+      logger.info(s"updateFiles: ${files.size} files, ${files.values.map(_._1.size).sum} symbols, $totalRefs refs. Before: ${s.references.size} ref keys, ${s.symbols.size} symbols")
+      val result = files.foldLeft(s) { case (state, (uri, (symbols, refs))) =>
         val cleaned = removeFileFromState(state, uri)
         addFileToState(cleaned, uri, symbols, refs)
       }
+      logger.info(s"updateFiles done. After: ${result.references.size} ref keys, ${result.symbols.size} symbols")
+      result
     }
+
+  private val logger = org.slf4j.LoggerFactory.getLogger(this.getClass)
 
   def removeFiles(uris: Set[URI]): IO[Unit] =
     state.update { s =>
+      logger.info(s"removeFiles called with ${uris.size} URIs, current refs=${s.references.size} keys, symbols=${s.symbols.size}")
       uris.foldLeft(s)(removeFileFromState)
     }
+
+  def symbolCount: IO[Int] = state.get.map(_.symbols.size)
+  def fileCount: IO[Int] = state.get.map(_.byFile.size)
+  def debugReferenceKeys: IO[List[SymbolId]] = state.get.map(_.references.keys.toList)
 }
 
 object ProjectIndex {
+  private val logger = org.slf4j.LoggerFactory.getLogger(classOf[ProjectIndex])
 
   def empty: IO[ProjectIndex] =
     Ref[IO].of(State.empty).map(new ProjectIndex(_))
@@ -103,7 +115,7 @@ object ProjectIndex {
         val lower = sym.name.toLowerCase
         nameTrie = nameTrie.update(lower, _ - id)
 
-        val cc = CamelCaseUtils.extractCamelCase(sym.name)
+        val cc = CamelCaseUtils.extractPascalCase(sym.name)
         if cc.nonEmpty then camelCaseTrie = camelCaseTrie.update(cc, _ - id)
 
         sym.parents.foreach { parent =>
@@ -155,7 +167,7 @@ object ProjectIndex {
       val nameSet = nameTrie.get(lower).getOrElse(Set.empty)
       nameTrie = nameTrie.insert(lower, nameSet + sym.id)
 
-      val cc = CamelCaseUtils.extractCamelCase(sym.name)
+      val cc = CamelCaseUtils.extractPascalCase(sym.name)
       if cc.nonEmpty then {
         val ccSet = camelCaseTrie.get(cc).getOrElse(Set.empty)
         camelCaseTrie = camelCaseTrie.insert(cc, ccSet + sym.id)
@@ -171,6 +183,7 @@ object ProjectIndex {
 
     var refsMap = s.references
     newRefs.foreach { ref =>
+      logger.info(s"  addRef: ${ref.symbol.value} -> ${ref.location.uri}:${ref.location.startLine}:${ref.location.startCol} (${ref.referenceKind})")
       refsMap = refsMap.updatedWith(ref.symbol) {
         case Some(list) => Some(ref :: list)
         case None       => Some(List(ref))

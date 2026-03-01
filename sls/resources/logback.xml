@@ -37,9 +37,37 @@
     <appender-ref ref="SLS_LOG"/>
   </logger>
 
+  <!-- Appender for CSP message traces -->
+  <appender name="CSP_TRACE" class="ch.qos.logback.core.FileAppender">
+    <file>./.logs/csp-trace.log</file>
+    <append>false</append>
+    <encoder>
+      <pattern>%date{HH:mm:ss.SSS} %-5level - %msg%n</pattern>
+    </encoder>
+  </appender>
+
   <!-- Logger for LSP message traces -->
   <logger name="org.scala.abusers.sls.MessageTracer" level="TRACE" additivity="false">
     <appender-ref ref="LSP_TRACE"/>
+  </logger>
+
+  <!-- Logger for CSP message traces -->
+  <logger name="org.scala.abusers.sls.CspMessageTracer" level="TRACE" additivity="false">
+    <appender-ref ref="CSP_TRACE"/>
+  </logger>
+
+  <!-- Appender for CSP server stderr -->
+  <appender name="CSP_STDERR" class="ch.qos.logback.core.FileAppender">
+    <file>./.logs/csp-stderr.log</file>
+    <append>false</append>
+    <encoder>
+      <pattern>%date %-5level - %msg%n</pattern>
+    </encoder>
+  </appender>
+
+  <!-- Logger for CSP server stderr -->
+  <logger name="org.scala.abusers.sls.CspStderr" level="WARN" additivity="false">
+    <appender-ref ref="CSP_STDERR"/>
   </logger>
 
   <root level="INFO">

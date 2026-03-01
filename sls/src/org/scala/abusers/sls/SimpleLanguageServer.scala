@@ -37,6 +37,7 @@ object SimpleScalaServer extends ProfilingIOApp {
 
   override def program(using meter: Meter[IO], tracer: Tracer[IO]) =
     for {
+      _ <- Resource.eval(IO(index.TastyIndexer.installStdoutGuard()))
       fs2Channel           <- FS2Channel.resource[IO](cancelTemplate = LSPCancelRequest.cancelTemplate.some)
       client               <- ClientStub(SlsLanguageClient, fs2Channel).liftTo[IO].toResource
       serverImpl           <- server(client)
@@ -79,6 +80,11 @@ object SimpleScalaServer extends ProfilingIOApp {
       cancelTokens      <- IOCancelTokens.instance
       diagnosticManager <- DiagnosticManager.instance.toResource
       computationQueue  <- ComputationQueue.instance.toResource
+      projectIndex      <- index.ProjectIndex.empty.toResource
+      dependencyIndex   <- index.DependencyIndex.empty.toResource
+      bytecodeIndexer   = index.BytecodeIndexer()
+      symbolIndex       = index.SymbolIndex(projectIndex, dependencyIndex)
+      indexManager      = index.IndexManager(projectIndex, dependencyIndex, bytecodeIndexer)
     } yield ServerImpl(
       pcProvider,
       cancelTokens,
@@ -90,5 +96,7 @@ object SimpleScalaServer extends ProfilingIOApp {
       computationQueue,
       textDocumentSync,
       bspStateManager,
+      indexManager,
+      symbolIndex,
     )
 }

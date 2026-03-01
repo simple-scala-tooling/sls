@@ -2,6 +2,7 @@ package org.scala.abusers.sls.index
 
 import cats.effect.IO
 import java.net.URI
+import scala.concurrent.duration.*
 
 class SymbolIndex(
     val project: ProjectIndex,
@@ -22,11 +23,12 @@ class SymbolIndex(
     } yield proj ++ dep.filterNot(s => projIds.contains(s.id))
 
   def searchSymbols(query: String): IO[List[IndexedSymbol]] =
-    for {
+    (for {
       proj <- project.searchSymbols(query)
       dep <- dependency.searchSymbols(query)
       projIds = proj.map(_.id).toSet
-    } yield proj ++ dep.filterNot(s => projIds.contains(s.id))
+    } yield proj ++ dep.filterNot(s => projIds.contains(s.id)))
+      .timeoutTo(5.seconds, IO.pure(Nil))
 
   def getReferences(id: SymbolId): IO[List[SymbolReference]] =
     project.getReferences(id)
