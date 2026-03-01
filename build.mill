@@ -1,26 +1,25 @@
-import mill.scalalib.publish.Developer
-import mill.scalalib.publish.VersionControl
-import mill.scalalib.publish.License
-import mill.scalalib.publish.PomSettings
-import mill.eval.Evaluator
-import smithy4s.codegen.LSP
+//| mill-repositories: ["https://central.sonatype.com/repository/maven-snapshots/"]
+//| mvnDeps:
+//| - com.disneystreaming.smithy4s::smithy4s-mill-codegen-plugin::0.19.0-M2-23-93ae7ff8-SNAPSHOT
+//| - com.goyeau::mill-scalafix::0.6.0
+
+import mill.javalib.publish.Developer
+import mill.javalib.publish.VersionControl
+import mill.javalib.publish.License
+import mill.javalib.publish.PomSettings
 import com.goyeau.mill.scalafix.ScalafixModule
-import scala.collection.immutable.ListSet
 import coursier.core.Repository
 import coursier.maven.MavenRepository
 import mill._
-import mill.define.Sources
+import mill.api.Task.Simple.create
 import scalalib._
 import smithy4s.codegen.mill._
-
-import $ivy.`com.disneystreaming.smithy4s::smithy4s-mill-codegen-plugin_mill0.12:0.18.37`
-import $ivy.`com.goyeau::mill-scalafix::0.5.0`
 
 val jsonrpcVersion     = "0.1.0"
 val smithyVersion      = "1.57.1"
 
 trait CommonScalaModule extends ScalaModule with ScalafixModule {
-  override def repositoriesTask: Task[Seq[Repository]] = T.task {
+  override def repositoriesTask: Task[Seq[Repository]] = Task.Anon {
     Seq(
       MavenRepository("https://s01.oss.sonatype.org/content/repositories/snapshots"),
       MavenRepository("https://s01.oss.sonatype.org/content/repositories/releases"),
@@ -35,24 +34,25 @@ trait CommonScalaModule extends ScalaModule with ScalafixModule {
 
 object slsSmithy extends CommonScalaModule with Smithy4sModule {
 
-  override def ivyDeps = Agg(
-    ivy"com.disneystreaming.smithy4s::smithy4s-core:${smithy4sVersion()}",
-    ivy"tech.neander:jsonrpclib-smithy:$jsonrpcVersion",
-    ivy"io.github.simple-scala-tooling:lsp-smithy-definitions:1f4b6e9",
+  override def mvnDeps = Seq(
+    mvn"com.disneystreaming.alloy:alloy-core:0.3.36", // Conflict with alloy
+    mvn"com.disneystreaming.smithy4s::smithy4s-core:${smithy4sVersion()}",
+    mvn"tech.neander:jsonrpclib-smithy:$jsonrpcVersion",
+    mvn"io.github.simple-scala-tooling:lsp-smithy-definitions:1f4b6e9",
   )
 }
 
 object profilingRuntime extends CommonScalaModule with PublishModule {
-  def ivyDeps = Agg(
-    ivy"io.pyroscope:agent:2.1.2",
-    ivy"org.typelevel::cats-effect:3.6.3",
-    ivy"org.typelevel::otel4s-sdk:0.13.1",
-    ivy"org.typelevel::otel4s-sdk-exporter:0.13.1",
-    ivy"org.typelevel::otel4s-experimental-metrics:0.7.0",
-    ivy"org.typelevel::otel4s-instrumentation-metrics:0.13.1"
+  def mvnDeps = Seq(
+    mvn"io.pyroscope:agent:2.1.2",
+    mvn"org.typelevel::cats-effect:3.6.3",
+    mvn"org.typelevel::otel4s-sdk:0.13.1",
+    mvn"org.typelevel::otel4s-sdk-exporter:0.13.1",
+    mvn"org.typelevel::otel4s-experimental-metrics:0.7.0",
+    mvn"org.typelevel::otel4s-instrumentation-metrics:0.13.1"
   )
 
-  def pomSettings: T[PomSettings] = PomSettings(
+  def pomSettings = PomSettings(
     description = "A runtime with pyroscope profiling and OpenTelemetry tracing",
     url = "",
     licenses = Seq(License.`MPL-2.0`),
@@ -63,7 +63,7 @@ object profilingRuntime extends CommonScalaModule with PublishModule {
     )
   )
 
-  def publishVersion: T[String] = "0.0.1-SNAPSHOT"
+  def publishVersion = "0.0.1-SNAPSHOT"
 }
 
 object sls extends CommonScalaModule {
@@ -72,23 +72,23 @@ object sls extends CommonScalaModule {
 
   def moduleDeps: Seq[JavaModule] = Seq(slsSmithy, profilingRuntime, zincCli)
 
-  override def forkArgs: T[Seq[String]] = Seq(
+  override def forkArgs = Seq(
     "-Dcats.effect.trackFiberContext=true"
   )
 
-  def ivyDeps = Agg(
-    ivy"org.typelevel::cats-effect:3.6.3",
-    ivy"co.fs2::fs2-io:3.13.0-M2",
-    ivy"io.scalaland::chimney:1.8.1",
-    ivy"io.scalaland::chimney-java-collections:1.8.1",
-    ivy"tech.neander::jsonrpclib-fs2::$jsonrpcVersion",
-    ivy"ch.qos.logback:logback-classic:1.4.14",
-    ivy"com.lihaoyi::os-lib:0.11.4",
-    ivy"org.polyvariant.smithy4s-bsp::bsp4s:0.5.0",
-    ivy"org.scalameta:mtags-interfaces:1.6.3",
-    ivy"com.evolution::scache:5.1.2",
-    ivy"org.typelevel::cats-parse:1.1.0",
-    ivy"io.get-coursier:interface:1.0.28",
+  def mvnDeps = Seq(
+    mvn"org.typelevel::cats-effect:3.6.3",
+    mvn"co.fs2::fs2-io:3.13.0-M2",
+    mvn"io.scalaland::chimney:1.8.1",
+    mvn"io.scalaland::chimney-java-collections:1.8.1",
+    mvn"tech.neander::jsonrpclib-fs2::$jsonrpcVersion",
+    mvn"ch.qos.logback:logback-classic:1.4.14",
+    mvn"com.lihaoyi::os-lib:0.11.4",
+    mvn"org.polyvariant.smithy4s-bsp::bsp4s:0.5.0",
+    mvn"org.scalameta:mtags-interfaces:1.6.3",
+    mvn"com.evolution::scache:5.1.2",
+    mvn"org.typelevel::cats-parse:1.1.0",
+    mvn"io.get-coursier:interface:1.0.28",
   )
 
   def javacOptions = Seq(
@@ -96,8 +96,8 @@ object sls extends CommonScalaModule {
   )
 
   object test extends ScalaTests {
-    def ivyDeps = Agg(
-      ivy"com.disneystreaming::weaver-cats:0.8.4"
+    def mvnDeps = Seq(
+      mvn"com.disneystreaming::weaver-cats:0.8.4"
     )
     def testFramework = "weaver.framework.CatsEffect"
   }
@@ -105,12 +105,13 @@ object sls extends CommonScalaModule {
 
 object zincSmithy extends CommonScalaModule with Smithy4sModule with PublishModule {
 
-  override def ivyDeps = Agg(
-    ivy"com.disneystreaming.smithy4s::smithy4s-core:${smithy4sVersion()}",
-    ivy"tech.neander:jsonrpclib-smithy:$jsonrpcVersion",
+  override def mvnDeps = Seq(
+    mvn"com.disneystreaming.alloy:alloy-core:0.3.36", // Conflict with alloy
+    mvn"com.disneystreaming.smithy4s::smithy4s-core:${smithy4sVersion()}",
+    mvn"tech.neander:jsonrpclib-smithy:$jsonrpcVersion",
   )
 
-  def pomSettings: T[PomSettings] = PomSettings(
+  def pomSettings = PomSettings(
     description = "Zinc-based Scala incremental compiler server with CSP protocol",
     url = "",
     licenses = Seq(License.`MPL-2.0`),
@@ -121,30 +122,30 @@ object zincSmithy extends CommonScalaModule with Smithy4sModule with PublishModu
     )
   )
 
-  def publishVersion: T[String] = "0.0.1-SNAPSHOT"
+  def publishVersion = "0.0.1-SNAPSHOT"
 }
 
 object exampleZincCliClient extends CommonScalaModule {
 
   def moduleDeps: Seq[JavaModule] = Seq(zincCli)
 
-  def ivyDeps = Agg(
-    ivy"org.typelevel::cats-effect:3.6.3",
-    ivy"co.fs2::fs2-io:3.13.0-M2",
-    ivy"io.scalaland::chimney:1.8.1",
-    ivy"io.scalaland::chimney-java-collections:1.8.1",
-    ivy"tech.neander::jsonrpclib-fs2::$jsonrpcVersion",
-    ivy"ch.qos.logback:logback-classic:1.4.14",
-    ivy"com.lihaoyi::os-lib:0.11.4",
-    ivy"org.polyvariant.smithy4s-bsp::bsp4s:0.5.0",
-    ivy"tech.neander::jsonrpclib-smithy4s::$jsonrpcVersion",
-    ivy"com.evolution::scache:5.1.2",
-    ivy"org.typelevel::cats-parse:1.1.0",
-    ivy"io.get-coursier:interface:1.0.28",
-    ivy"org.ow2.asm:asm:9.6",
+  def mvnDeps = Seq(
+    mvn"org.typelevel::cats-effect:3.6.3",
+    mvn"co.fs2::fs2-io:3.13.0-M2",
+    mvn"io.scalaland::chimney:1.8.1",
+    mvn"io.scalaland::chimney-java-collections:1.8.1",
+    mvn"tech.neander::jsonrpclib-fs2::$jsonrpcVersion",
+    mvn"ch.qos.logback:logback-classic:1.4.14",
+    mvn"com.lihaoyi::os-lib:0.11.4",
+    mvn"org.polyvariant.smithy4s-bsp::bsp4s:0.5.0",
+    mvn"tech.neander::jsonrpclib-smithy4s::$jsonrpcVersion",
+    mvn"com.evolution::scache:5.1.2",
+    mvn"org.typelevel::cats-parse:1.1.0",
+    mvn"io.get-coursier:interface:1.0.28",
+    mvn"org.ow2.asm:asm:9.6",
   )
 
-  override def forkEnv: T[Map[String,String]] = T {
+  override def forkEnv = Task {
     Map(
       "SERVER_JAR" -> zincCli.assembly().path.toString,
       "TEST_SOURCES" -> testModule.sources().map(_.path.toString).mkString(";"),
@@ -165,25 +166,25 @@ object zincCli extends CommonScalaModule with PublishModule {
 
   def moduleDeps: Seq[PublishModule] = Seq(zincSmithy)
 
-  def ivyDeps = Agg(
-    ivy"org.typelevel::cats-effect:3.6.3",
-    ivy"co.fs2::fs2-io:3.13.0-M2",
-    ivy"io.scalaland::chimney:1.8.1",
-    ivy"org.scala-sbt:zinc_2.13:1.10.8",
-    ivy"io.scalaland::chimney-java-collections:1.8.1",
-    ivy"tech.neander::jsonrpclib-fs2::$jsonrpcVersion",
-    ivy"ch.qos.logback:logback-classic:1.4.14",
-    ivy"com.lihaoyi::os-lib:0.11.4",
-    ivy"org.polyvariant.smithy4s-bsp::bsp4s:0.5.0",
-    ivy"tech.neander::jsonrpclib-smithy4s::$jsonrpcVersion",
-    ivy"com.google.guava:guava:33.5.0-jre",
-    ivy"com.evolution::scache:5.1.2",
-    ivy"org.typelevel::cats-parse:1.1.0",
-    ivy"io.get-coursier:interface:1.0.28",
-    ivy"org.ow2.asm:asm:9.6",
+  def mvnDeps = Seq(
+    mvn"org.typelevel::cats-effect:3.6.3",
+    mvn"co.fs2::fs2-io:3.13.0-M2",
+    mvn"io.scalaland::chimney:1.8.1",
+    mvn"org.scala-sbt:zinc_2.13:1.10.8",
+    mvn"io.scalaland::chimney-java-collections:1.8.1",
+    mvn"tech.neander::jsonrpclib-fs2::$jsonrpcVersion",
+    mvn"ch.qos.logback:logback-classic:1.4.14",
+    mvn"com.lihaoyi::os-lib:0.11.4",
+    mvn"org.polyvariant.smithy4s-bsp::bsp4s:0.5.0",
+    mvn"tech.neander::jsonrpclib-smithy4s::$jsonrpcVersion",
+    mvn"com.google.guava:guava:33.5.0-jre",
+    mvn"com.evolution::scache:5.1.2",
+    mvn"org.typelevel::cats-parse:1.1.0",
+    mvn"io.get-coursier:interface:1.0.28",
+    mvn"org.ow2.asm:asm:9.6",
   )
 
-  def pomSettings: T[PomSettings] = PomSettings(
+  def pomSettings = PomSettings(
     description = "Zinc-based Scala incremental compiler server with CSP protocol",
     url = "",
     licenses = Seq(License.`MPL-2.0`),
@@ -194,13 +195,12 @@ object zincCli extends CommonScalaModule with PublishModule {
     )
   )
 
-  def publishVersion: T[String] = "0.0.1-SNAPSHOT"
+  def publishVersion = "0.0.1-SNAPSHOT"
 
   // object test extends ScalaTests {
-  //   def ivyDeps = Agg(
-  //     ivy"com.disneystreaming::weaver-cats:0.8.4"
+  //   def mvnDeps = Seq(
+  //     mvn"com.disneystreaming::weaver-cats:0.8.4"
   //   )
   //   def testFramework = "weaver.framework.CatsEffect"
   // }
 }
-
