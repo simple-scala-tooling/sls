@@ -38,7 +38,7 @@ object slsSmithy extends CommonScalaModule with Smithy4sModule {
     mvn"com.disneystreaming.alloy:alloy-core:0.3.8", // Conflict with alloy
     mvn"com.disneystreaming.smithy4s::smithy4s-core:${smithy4sVersion()}",
     mvn"tech.neander:jsonrpclib-smithy:$jsonrpcVersion",
-    mvn"io.github.simple-scala-tooling:lsp-smithy-definitions:0.1.0-1-a1913a3",
+    mvn"io.github.simple-scala-tooling:lsp-smithy-definitions:0.2.0",
   )
 }
 
