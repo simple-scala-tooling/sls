@@ -1,6 +1,6 @@
 //| mill-repositories: ["https://central.sonatype.com/repository/maven-snapshots/"]
 //| mvnDeps:
-//| - com.disneystreaming.smithy4s::smithy4s-mill-codegen-plugin::0.19.0-M2-23-93ae7ff8-SNAPSHOT
+//| - com.disneystreaming.smithy4s::smithy4s-mill-codegen-plugin::0.18.52
 //| - com.goyeau::mill-scalafix::0.6.0
 
 import mill.javalib.publish.Developer
@@ -16,7 +16,7 @@ import scalalib._
 import smithy4s.codegen.mill._
 
 val jsonrpcVersion     = "0.1.0"
-val smithyVersion      = "1.57.1"
+val smithyVersion      = "1.70.0"
 
 trait CommonScalaModule extends ScalaModule with ScalafixModule {
   override def repositoriesTask: Task[Seq[Repository]] = Task.Anon {
@@ -28,17 +28,17 @@ trait CommonScalaModule extends ScalaModule with ScalafixModule {
     ) ++ super.repositoriesTask()
   }
 
-  def scalaVersion = "3.7.4"
+  def scalaVersion = "3.8.3"
   def scalacOptions = Seq("-Wunused:all")
 }
 
 object slsSmithy extends CommonScalaModule with Smithy4sModule {
 
   override def mvnDeps = Seq(
-    mvn"com.disneystreaming.alloy:alloy-core:0.3.36", // Conflict with alloy
+    mvn"com.disneystreaming.alloy:alloy-core:0.3.8", // Conflict with alloy
     mvn"com.disneystreaming.smithy4s::smithy4s-core:${smithy4sVersion()}",
     mvn"tech.neander:jsonrpclib-smithy:$jsonrpcVersion",
-    mvn"io.github.simple-scala-tooling:lsp-smithy-definitions:1f4b6e9",
+    mvn"io.github.simple-scala-tooling:lsp-smithy-definitions:0.1.0-1-a1913a3",
   )
 }
 
@@ -77,14 +77,14 @@ object sls extends CommonScalaModule {
   )
 
   def mvnDeps = Seq(
-    mvn"org.typelevel::cats-effect:3.6.3",
-    mvn"co.fs2::fs2-io:3.13.0-M2",
+    mvn"org.typelevel::cats-effect:3.7.0",
+    mvn"co.fs2::fs2-io:3.13.0",
     mvn"io.scalaland::chimney:1.8.1",
     mvn"io.scalaland::chimney-java-collections:1.8.1",
     mvn"tech.neander::jsonrpclib-fs2::$jsonrpcVersion",
     mvn"ch.qos.logback:logback-classic:1.4.14",
     mvn"com.lihaoyi::os-lib:0.11.4",
-    mvn"org.polyvariant.smithy4s-bsp::bsp4s:0.5.0",
+    mvn"org.polyvariant.smithy4s-bsp::bsp4s:0.6.0",
     mvn"org.scalameta:mtags-interfaces:1.6.3",
     mvn"com.evolution::scache:5.1.2",
     mvn"org.typelevel::cats-parse:1.1.0",
@@ -97,7 +97,7 @@ object sls extends CommonScalaModule {
 
   object test extends ScalaTests {
     def mvnDeps = Seq(
-      mvn"com.disneystreaming::weaver-cats:0.8.4"
+      mvn"org.typelevel::weaver-cats:0.12.0"
     )
     def testFramework = "weaver.framework.CatsEffect"
   }
@@ -106,7 +106,7 @@ object sls extends CommonScalaModule {
 object zincSmithy extends CommonScalaModule with Smithy4sModule with PublishModule {
 
   override def mvnDeps = Seq(
-    mvn"com.disneystreaming.alloy:alloy-core:0.3.36", // Conflict with alloy
+    mvn"com.disneystreaming.alloy:alloy-core:0.3.38", // Conflict with alloy
     mvn"com.disneystreaming.smithy4s::smithy4s-core:${smithy4sVersion()}",
     mvn"tech.neander:jsonrpclib-smithy:$jsonrpcVersion",
   )
@@ -130,14 +130,14 @@ object exampleZincCliClient extends CommonScalaModule {
   def moduleDeps: Seq[JavaModule] = Seq(zincCli)
 
   def mvnDeps = Seq(
-    mvn"org.typelevel::cats-effect:3.6.3",
-    mvn"co.fs2::fs2-io:3.13.0-M2",
+    mvn"org.typelevel::cats-effect:3.7.0",
+    mvn"co.fs2::fs2-io:3.13.0",
     mvn"io.scalaland::chimney:1.8.1",
     mvn"io.scalaland::chimney-java-collections:1.8.1",
     mvn"tech.neander::jsonrpclib-fs2::$jsonrpcVersion",
     mvn"ch.qos.logback:logback-classic:1.4.14",
     mvn"com.lihaoyi::os-lib:0.11.4",
-    mvn"org.polyvariant.smithy4s-bsp::bsp4s:0.5.0",
+    mvn"org.polyvariant.smithy4s-bsp::bsp4s:0.6.0",
     mvn"tech.neander::jsonrpclib-smithy4s::$jsonrpcVersion",
     mvn"com.evolution::scache:5.1.2",
     mvn"org.typelevel::cats-parse:1.1.0",
@@ -167,15 +167,15 @@ object zincCli extends CommonScalaModule with PublishModule {
   def moduleDeps: Seq[PublishModule] = Seq(zincSmithy)
 
   def mvnDeps = Seq(
-    mvn"org.typelevel::cats-effect:3.6.3",
-    mvn"co.fs2::fs2-io:3.13.0-M2",
+    mvn"org.typelevel::cats-effect:3.7.0",
+    mvn"co.fs2::fs2-io:3.13.0",
     mvn"io.scalaland::chimney:1.8.1",
     mvn"org.scala-sbt:zinc_2.13:1.10.8",
     mvn"io.scalaland::chimney-java-collections:1.8.1",
     mvn"tech.neander::jsonrpclib-fs2::$jsonrpcVersion",
     mvn"ch.qos.logback:logback-classic:1.4.14",
     mvn"com.lihaoyi::os-lib:0.11.4",
-    mvn"org.polyvariant.smithy4s-bsp::bsp4s:0.5.0",
+    mvn"org.polyvariant.smithy4s-bsp::bsp4s:0.6.0",
     mvn"tech.neander::jsonrpclib-smithy4s::$jsonrpcVersion",
     mvn"com.google.guava:guava:33.5.0-jre",
     mvn"com.evolution::scache:5.1.2",

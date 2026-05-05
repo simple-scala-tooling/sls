@@ -8,7 +8,7 @@ import java.nio.file.Files
 import java.nio.charset.StandardCharsets
 import java.io.ByteArrayInputStream
 import xsbti.PathBasedFile
-import java.{util => ju}
+
 import xsbti.BasicVirtualFileRef
 
 /**

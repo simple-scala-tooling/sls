@@ -76,7 +76,7 @@ class BspStateManager(
       cspServer.compile(
         scopeId = info.buildTarget.displayName.getOrElse("default"),
         classpath = info.classpath.map(_.toString),
-        sourcePath = info.sources._2.map(p => URI(p.uri.value).getPath()),
+        sourcePath = info.sources.sources.map(p => URI(p.uri.value).getPath()),
         scalaVersion = org.scala.abusers.csp.ScalaVersion(info.buildTarget.data.scalaVersion),
         scalacOptions = info.scalacOptions.options,
         javacOptions = Nil
