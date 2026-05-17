@@ -15,3 +15,5 @@ langoustine-tracer
 
 .idea
 .vscode
+.claude/settings.local.json
+.mcp.json
