@@ -58,7 +58,7 @@ object TextDocumentSyncSuite extends SimpleIOSuite {
       )
     )
 
-    doc <- mgr.get(java.net.URI(uri))
+    doc <- mgr.get(SourceUri(uri))
     yield expect.eql(expected = "val x = 1\nval y = 2", found = doc.content)
 
   }
@@ -77,7 +77,7 @@ object TextDocumentSyncSuite extends SimpleIOSuite {
       )
     )
 
-    doc <- mgr.get(java.net.URI(uri))
+    doc <- mgr.get(SourceUri(uri))
     yield expect.eql(expected = "val x = 1\nval y = 2\nval z = 3", found = doc.content)
 
   }
@@ -95,7 +95,7 @@ object TextDocumentSyncSuite extends SimpleIOSuite {
       )
     )
 
-    doc <- mgr.get(java.net.URI(uri))
+    doc <- mgr.get(SourceUri(uri))
     yield expect.eql(expected = "val x = 1\nval y = 2\n", found = doc.content)
 
   }
@@ -114,7 +114,7 @@ object TextDocumentSyncSuite extends SimpleIOSuite {
       )
     )
 
-    doc <- mgr.get(java.net.URI(uri))
+    doc <- mgr.get(SourceUri(uri))
     yield expect.eql(expected = "val crazyBug = 123\n  \n\n  \n//end", found = doc.content)
   }
 
@@ -133,7 +133,7 @@ object TextDocumentSyncSuite extends SimpleIOSuite {
       )
     )
 
-    doc <- mgr.get(java.net.URI(uri))
+    doc <- mgr.get(SourceUri(uri))
     yield expect.eql(expected = "val x = 1\nval y = 2\nval xx = 3\nval yy = 4\n\nval z = 3", found = doc.content)
   }
 
@@ -150,7 +150,7 @@ object TextDocumentSyncSuite extends SimpleIOSuite {
       )
     )
 
-    doc <- mgr.get(java.net.URI(uri))
+    doc <- mgr.get(SourceUri(uri))
     yield expect.eql(expected = "val x = 1\np\nval z = 3", found = doc.content)
 
   }

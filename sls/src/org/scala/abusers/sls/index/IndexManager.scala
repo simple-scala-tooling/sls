@@ -4,8 +4,8 @@ package sls.index
 import cats.effect.IO
 import org.scala.abusers.sls.ScalaBuildTargetInformation
 import org.scala.abusers.sls.ScalaBuildTargetInformation.*
+import org.scala.abusers.sls.{AbsolutePath, SourceUri, toSourceUri}
 import org.scala.abusers.csp.CompileOutput
-import java.net.URI
 import java.util.zip.ZipInputStream
 import java.io.FileInputStream
 import org.slf4j.LoggerFactory
@@ -18,11 +18,11 @@ case class IndexManager(
   private val logger = LoggerFactory.getLogger(this.getClass)
 
   def indexDependencies(targets: Set[ScalaBuildTargetInformation]): IO[Unit] = {
-    val projectDirs = targets.flatMap(t => Set(t.osLibClassesDir, t.osLibClassJarPath))
+    val projectDirs = targets.flatMap(t => Set(t.classesDir, t.classJarPath))
     val allClasspath = targets.flatMap(_.classpath).toList.distinct
     val depJars = allClasspath.filter { p =>
-      p.toString.endsWith(".jar") && !projectDirs.contains(p)
-    }.filter(os.exists(_))
+      p.toNioPath.toString.endsWith(".jar") && !projectDirs.contains(p)
+    }.filter(_.exists)
 
     fs2.Stream.emits(depJars)
       .parEvalMapUnordered(4)(jar => indexJarSafely(jar, allClasspath))
@@ -39,9 +39,9 @@ case class IndexManager(
     }.void
 
   def onCompilationComplete(target: ScalaBuildTargetInformation, compileOutput: CompileOutput): IO[Unit] = {
-    val changedSourceUris = compileOutput.changedFiles.keys.map(p => java.nio.file.Path.of(p).toUri).toSet
+    val changedSourceUris = compileOutput.changedFiles.keys.map(p => java.nio.file.Path.of(p).toSourceUri).toSet
     val changedProducts = compileOutput.changedFiles.values.flatten.toSet
-    val outputJar = os.Path(compileOutput.outputJar)
+    val outputJar = AbsolutePath(compileOutput.outputJar)
     val indexer = TastyIndexer(target.displayName)
 
     for {
@@ -73,19 +73,19 @@ case class IndexManager(
     } yield ()
   }
 
-  def onFilesDeleted(uris: Set[URI]): IO[Unit] =
+  def onFilesDeleted(uris: Set[SourceUri]): IO[Unit] =
     projectIndex.removeFiles(uris)
 
   private def indexProjectTarget(target: ScalaBuildTargetInformation): IO[Unit] = {
-    val classesDir = target.osLibClassesDir
-    val classJar = target.osLibClassJarPath
-    val bspClassDir = os.Path(java.net.URI.create(target.scalacOptions.classDirectory).getPath)
+    val classesDir = target.classesDir
+    val classJar = target.classJarPath
+    val bspClassDir = SourceUri(target.scalacOptions.classDirectory).toPath
     val indexer = TastyIndexer(target.displayName)
-    if os.exists(classesDir) && hasTastyFiles(classesDir) then
+    if classesDir.exists && hasTastyFiles(classesDir) then
       indexer.indexDirectory(classesDir, target.classpath).flatMap(projectIndex.updateFiles)
-    else if os.exists(classJar) then
+    else if classJar.exists then
       indexer.indexJar(classJar, target.classpath).flatMap(projectIndex.updateFiles)
-    else if os.exists(bspClassDir) && hasTastyFiles(bspClassDir) then
+    else if bspClassDir.exists && hasTastyFiles(bspClassDir) then
       logger.info(s"Indexing BSP class directory for ${target.displayName}: $bspClassDir")
       indexer.indexDirectory(bspClassDir, target.classpath).flatMap(projectIndex.updateFiles)
     else
@@ -93,8 +93,8 @@ case class IndexManager(
       IO.unit
   }
 
-  private def indexJarSafely(jarPath: os.Path, classpath: List[os.Path]): IO[Unit] = {
-    val jar = jarPath.toString
+  private def indexJarSafely(jarPath: AbsolutePath, classpath: List[AbsolutePath]): IO[Unit] = {
+    val jar = jarPath.toNioPath.toString
     def indexViaBytecode: IO[Unit] =
       bytecodeIndexer.indexJar(jarPath).flatMap(dependencyIndex.addJar(jar, _))
 
@@ -115,9 +115,9 @@ case class IndexManager(
     } yield ()).handleError(e => logger.error(s"Failed to index JAR $jar", e))
   }
 
-  private def jarContainsTasty(jarPath: os.Path): IO[Boolean] =
+  private def jarContainsTasty(jarPath: AbsolutePath): IO[Boolean] =
     IO.blocking {
-      val zis = new ZipInputStream(new FileInputStream(jarPath.toIO))
+      val zis = new ZipInputStream(new FileInputStream(jarPath.toFile))
       try
         Iterator.continually(zis.getNextEntry)
           .takeWhile(_ != null)
@@ -125,8 +125,8 @@ case class IndexManager(
       finally zis.close()
     }
 
-  private def hasTastyFiles(dir: os.Path): Boolean =
-    os.walk.stream(dir).exists(_.ext == "tasty")
+  private def hasTastyFiles(dir: AbsolutePath): Boolean =
+    java.nio.file.Files.walk(dir.toNioPath).anyMatch(p => p.toString.endsWith(".tasty"))
 }
 
 object IndexManager {

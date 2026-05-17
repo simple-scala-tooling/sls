@@ -1,12 +1,12 @@
 package org.scala.abusers.sls.index
 
-import java.net.URI
+import org.scala.abusers.sls.SourceUri
 import dotty.tools.dotc.semanticdb.{TextDocument, SymbolInformation}
 
 object SemanticdbIndexer:
 
   def indexDocument(
-      uri: URI,
+      uri: SourceUri,
       bytes: Array[Byte],
       buildTarget: String,
   ): (List[IndexedSymbol], List[SymbolReference]) =

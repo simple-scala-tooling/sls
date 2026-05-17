@@ -10,10 +10,10 @@ import mill.javalib.publish.PomSettings
 import com.goyeau.mill.scalafix.ScalafixModule
 import coursier.core.Repository
 import coursier.maven.MavenRepository
-import mill._
+import mill.*
 import mill.api.Task.Simple.create
-import scalalib._
-import smithy4s.codegen.mill._
+import scalalib.*
+import smithy4s.codegen.mill.*
 
 val jsonrpcVersion     = "0.1.0"
 val smithyVersion      = "1.70.0"

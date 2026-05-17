@@ -5,14 +5,15 @@ import org.objectweb.asm.{ClassReader, ClassVisitor, FieldVisitor, MethodVisitor
 import java.util.zip.{ZipEntry, ZipInputStream}
 import java.io.{ByteArrayOutputStream, FileInputStream}
 import scala.collection.mutable.ListBuffer
+import org.scala.abusers.sls.AbsolutePath
 
 class BytecodeIndexer {
 
-  def indexJar(jarPath: os.Path): IO[List[IndexedSymbol]] =
+  def indexJar(jarPath: AbsolutePath): IO[List[IndexedSymbol]] =
     IO.blocking {
       val symbols = ListBuffer.empty[IndexedSymbol]
-      val origin = SymbolOrigin.DependencyClassfile(jarPath.toString)
-      val zis = new ZipInputStream(new FileInputStream(jarPath.toIO))
+      val origin = SymbolOrigin.DependencyClassfile(jarPath.toNioPath.toString)
+      val zis = new ZipInputStream(new FileInputStream(jarPath.toFile))
       try {
         var entry: ZipEntry = zis.getNextEntry
         while (entry != null) {

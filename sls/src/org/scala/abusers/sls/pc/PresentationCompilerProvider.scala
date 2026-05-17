@@ -5,10 +5,10 @@ import cats.effect.IO
 import com.evolution.scache.Cache as SCache
 import com.evolution.scache.ExpiringCache
 import coursierapi.*
+import org.scala.abusers.sls.AbsolutePath
 import org.scala.abusers.sls.ScalaBuildTargetInformation
 import org.scala.abusers.sls.ScalaBuildTargetInformation.*
 import org.scala.abusers.sls.SynchronizedState
-import os.Path
 
 import java.net.URLClassLoader
 import scala.concurrent.duration.*
@@ -21,7 +21,7 @@ class PresentationCompilerProvider(
 ) {
   private val cache = Cache.create() // .withLogger TODO No completions here
 
-  private def fetchPresentationCompilerJars(scalaVersion: ScalaVersion): IO[Seq[os.Path]] = IO.blocking {
+  private def fetchPresentationCompilerJars(scalaVersion: ScalaVersion): IO[Seq[AbsolutePath]] = IO.blocking {
     val dep = Dependency.of(
       Module.of("org.scala-lang", "scala3-presentation-compiler_3"),
       scalaVersion.value,
@@ -34,7 +34,7 @@ class PresentationCompilerProvider(
       .addRepositories(MavenRepository.of("https://central.sonatype.com/repository/maven-snapshots/"))
       .fetch()
       .asScala
-      .map(os.Path.apply)
+      .map(f => AbsolutePath(f.toPath))
       .toList
 
   }
@@ -43,23 +43,23 @@ class PresentationCompilerProvider(
   def invalidateCompilers(): IO[Unit] = compilers.clear.void
 
   private def freshPresentationCompilerClassloader(
-      projectClasspath: Seq[os.Path],
-      compilerClasspath: Seq[os.Path],
+      projectClasspath: Seq[AbsolutePath],
+      compilerClasspath: Seq[AbsolutePath],
   ): IO[URLClassLoader] =
     IO.blocking {
       val fullClasspath    = compilerClasspath ++ projectClasspath
-      val urlFullClasspath = fullClasspath.map(_.toIO.toURL)
+      val urlFullClasspath = fullClasspath.map(_.toFile.toURI.toURL)
       URLClassLoader(urlFullClasspath.toArray)
     }
 
-  private def createPC(scalaVersion: ScalaVersion, projectClasspath: List[Path], scalacOptions: List[String]) =
+  private def createPC(scalaVersion: ScalaVersion, projectClasspath: List[AbsolutePath], scalacOptions: List[String]) =
     for {
       compilerClasspath <- fetchPresentationCompilerJars(scalaVersion)
       classloader       <- freshPresentationCompilerClassloader(projectClasspath, compilerClasspath)
       pc <- serviceLoader.load(classOf[RawPresentationCompiler], PresentationCompilerProvider.classname, classloader)
       scalacOptions0 = scalacOptions ++ Seq("-Ywith-best-effort-tasty", "-Ybest-effort")
-      _ <- IO.consoleForIO.error(s"Creating presentation compiler with classpath: ${projectClasspath.map(_.toString).mkString(", ")} and options: ${scalacOptions0.mkString(" ")}")
-    } yield pc.newInstance("pc-id-replace", projectClasspath.map(_.toNIO).asJava, scalacOptions0.toList.asJava)
+      _ <- IO.consoleForIO.error(s"Creating presentation compiler with classpath: ${projectClasspath.map(_.toNioPath.toString).mkString(", ")} and options: ${scalacOptions0.mkString(" ")}")
+    } yield pc.newInstance("pc-id-replace", projectClasspath.map(_.toNioPath).asJava, scalacOptions0.toList.asJava)
 
   def get(info: ScalaBuildTargetInformation)(using SynchronizedState): IO[RawPresentationCompiler] =
     compilers.getOrUpdate(info.buildTarget.id)(createPC(info.scalaVersion, info.classpath, info.compilerOptions))

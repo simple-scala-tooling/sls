@@ -62,10 +62,10 @@ class ServerImpl(
 
   def initializeOp(params: lsp.InitializeParams): IO[lsp.InitializeOpOutput] = {
     val rootUri  = params.rootUri.getOrElse(sys.error("what now?"))
-    val rootPath = os.Path(java.net.URI.create(rootUri).getPath())
+    val rootSourceUri = SourceUri(rootUri)
     (for {
       _         <- lspClient.logMessage("Ready to initialise!")
-      _         <- importMillBsp(rootPath)
+      _         <- importMillBsp(rootSourceUri)
       bspClient <- connectWithBloop(steward, diagnosticManager)
       cspClient <- connectWithCsp(steward)
       _         <- lspClient.logMessage("Connection with mill estabilished")
@@ -201,10 +201,10 @@ class ServerImpl(
       }
     }
 
-  def virtualFileParams(uri0: URI, content: String, token0: CancelToken): VirtualFileParams = new VirtualFileParams {
+  def virtualFileParams(uri0: SourceUri, content: String, token0: CancelToken): VirtualFileParams = new VirtualFileParams {
     override def text(): String       = content
     override def token(): CancelToken = token0
-    override def uri(): URI           = uri0
+    override def uri(): URI           = uri0.toURI
     override def shouldReturnDiagnostics(): Boolean = true
   }
 
@@ -226,7 +226,7 @@ class ServerImpl(
           def endOffset(): Int                   = params.range.end.toOffset
           def text(): String                     = content
           def token(): scala.meta.pc.CancelToken = token0
-          def uri(): java.net.URI                = uri0
+          def uri(): java.net.URI                = uri0.toURI
         }
 
         result <- pcParamsRequest(params, inalyHintsParams)(_.inlayHints)
@@ -264,27 +264,27 @@ class ServerImpl(
 
   def handleDidSave(params: lsp.DidSaveTextDocumentParams)(using SynchronizedState) =
 
-    def updateOutputClasspath(targetInfo: ScalaBuildTargetInformation, newClassesJar: os.Path): IO[Unit] = {
+    def updateOutputClasspath(targetInfo: ScalaBuildTargetInformation, newClassesJar: AbsolutePath): IO[Unit] = {
       val updateClassJar =
         // FIXME: Can't read betasty from jars !!!
         // FIXME: Can't write be tasty into jars !!!
         // TODO: Migrate to FS2
         // TODO: Write FS2 utils for all IO operations
         // TODO: Use custom traces and spans here to extract timings and profile it
-        IO.whenA(os.exists(newClassesJar)):
-          IO(os.remove.all(targetInfo.osLibClassesDir)) *>
-          UnzipUtils.unzipJarFromPath(fs2.io.file.Path(newClassesJar.toString), fs2.io.file.Path(targetInfo.osLibClassesDir.toString)) *>
+        IO.whenA(newClassesJar.exists):
+          IO(targetInfo.classesDir.deleteRecursively) *>
+          UnzipUtils.unzipJarFromPath(fs2.io.file.Path.fromNioPath(newClassesJar.toNioPath), fs2.io.file.Path.fromNioPath(targetInfo.classesDir.toNioPath)) *>
           pcProvider.invalidateCompilers()
 
       computationQueue.pushSync(updateClassJar)
     }
 
-    val uri = URI(params.textDocument.uri)
+    val uri = params.textDocument.sourceUri
     for {
       _    <- textDocumentSyncManager.didSave(params)
       info <- bspStateManager.get(uri)
       _    <- bspStateManager.compileWithCSP(uri).flatMap { res =>
-                updateOutputClasspath(info, os.Path(res.outputJar)) *>
+                updateOutputClasspath(info, AbsolutePath(res.outputJar)) *>
                 indexManager.onCompilationComplete(info, res).handleError(e => lspClient.logMessage(s"Failed to update index after compilation: ${e.getMessage()}"))
               }.timeout(60.seconds).start
     } yield ()
@@ -314,7 +314,7 @@ class ServerImpl(
     /** We want to debounce compiler diagnostics as they are expensive to compute and we can't really cancel them as
       * they are triggered by notification and AFAIK, LSP cancellation only works for requests.
       */
-    def pcDiagnostics(info: ScalaBuildTargetInformation, uri: URI): IO[Unit] =
+    def pcDiagnostics(info: ScalaBuildTargetInformation, uri: SourceUri): IO[Unit] =
       computationQueue.synchronously {
         cancelTokens.mkCancelToken.use { token =>
           for {
@@ -328,8 +328,8 @@ class ServerImpl(
               .withFieldRenamed(_.everyItem.getMessage, _.everyItem.message)
               .enableOptionDefaultsToNone
               .transform
-            _ <- diagnosticManager.didChange(lspClient, uri.toString, lspDiags)
-            _ <- IO.interruptible(pc.semanticdbTextDocument(uri, textDocument.content))
+            _ <- diagnosticManager.didChange(lspClient, uri, lspDiags)
+            _ <- IO.interruptible(pc.semanticdbTextDocument(uri.toURI, textDocument.content))
                    .flatMap { bytes =>
                      val (syms, refs) = index.SemanticdbIndexer.indexDocument(uri, bytes, info.displayName)
                      symbolIndex.project.updateFiles(Map(uri -> (syms, refs)))
@@ -342,7 +342,7 @@ class ServerImpl(
     params => {
         for {
           _ <- textDocumentSyncManager.didChange(params)
-          uri = URI(params.textDocument.uri)
+          uri = params.textDocument.sourceUri
           info <- bspStateManager.get(uri)
         } yield (uri, info)
       }
@@ -357,7 +357,7 @@ class ServerImpl(
     }
 
   private def handleReferences(params: lsp.ReferenceParams)(using SynchronizedState): IO[lsp.TextDocumentReferencesOpOutput] = {
-    val uri = URI(params.textDocument.uri)
+    val uri = params.textDocument.sourceUri
     val position = params.position
     cancelTokens.mkCancelToken.use { token =>
       for {
@@ -382,7 +382,7 @@ class ServerImpl(
       } yield lsp.TextDocumentReferencesOpOutput(
         if refs.isEmpty then None
         else Some(refs.map(ref => lsp.Location(
-          uri = ref.location.uri.toString,
+          uri = ref.location.uri.toLspUri,
           range = lsp.Range(
             start = lsp.Position(ref.location.startLine, ref.location.startCol),
             end = lsp.Position(ref.location.endLine, ref.location.endCol),
@@ -414,7 +414,7 @@ class ServerImpl(
     IO.pure(lsp.TypeHierarchySubtypesOpOutput(None))
 
   def workspaceDidDeleteFiles(params: lsp.DeleteFilesParams): IO[Unit] = {
-    val uris = params.files.map(f => URI.create(f.uri)).toSet
+    val uris = params.files.map(f => SourceUri(f.uri)).toSet
     indexManager.onFilesDeleted(uris)
   }
 
@@ -511,12 +511,12 @@ class ServerImpl(
               .through(Files[IO].writeAll(jarPath))
               .compile.drain
       } yield jarPath
-    )(jarPath => IO(os.remove.all(os.Path(jarPath.toNioPath.getParent))))
+    )(jarPath => IO(AbsolutePath(jarPath.toNioPath.getParent).deleteRecursively))
 
-  def importMillBsp(rootPath: os.Path) = {
+  def importMillBsp(rootUri: SourceUri) = {
     val millExec = "./mill" // TODO if mising then findMillExec()
     ProcessBuilder(millExec, "mill.bsp.BSP/install")
-      .withWorkingDirectory(fs2.io.file.Path.fromNioPath(rootPath.toNIO))
+      .withWorkingDirectory(rootUri.toFs2Path)
       .spawn[IO]
       .use { process =>
         val logStdout = process.stdout

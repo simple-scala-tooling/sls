@@ -1,6 +1,6 @@
 package org.scala.abusers.sls.index
 
-import java.net.URI
+import org.scala.abusers.sls.SourceUri
 
 opaque type SymbolId = String
 
@@ -33,7 +33,7 @@ def symbolIdCandidates(dottedName: String): List[SymbolId] =
       List(base, SymbolId(withDollar)).distinct
 
 case class Location(
-    uri: URI,
+    uri: SourceUri,
     startLine: Int,
     startCol: Int,
     endLine: Int,
@@ -51,7 +51,7 @@ enum ReferenceKind:
   case Call, TypeRef, Import, Override, Extends, Annotation
 
 enum SymbolOrigin:
-  case ProjectTasty(buildTarget: String, sourceFile: URI)
+  case ProjectTasty(buildTarget: String, sourceFile: SourceUri)
   case DependencyClassfile(jarPath: String)
 
 case class IndexedSymbol(

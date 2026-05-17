@@ -3,6 +3,7 @@ package org.scala.abusers.sls.index
 import cats.effect.IO
 import weaver.*
 import org.objectweb.asm.{ClassWriter, Opcodes}
+import org.scala.abusers.sls.AbsolutePath
 import java.io.FileOutputStream
 import java.util.zip.{ZipEntry, ZipOutputStream}
 
@@ -10,7 +11,7 @@ object BytecodeIndexerSpec extends SimpleIOSuite {
 
   private val indexer = BytecodeIndexer()
 
-  private def createJar(entries: List[(String, Array[Byte])]): IO[os.Path] = IO.blocking {
+  private def createJar(entries: List[(String, Array[Byte])]): IO[AbsolutePath] = IO.blocking {
     val tmp = os.temp.dir(prefix = "bytecode-indexer-test")
     val jarPath = tmp / "test.jar"
     val zos = new ZipOutputStream(new FileOutputStream(jarPath.toIO))
@@ -21,7 +22,7 @@ object BytecodeIndexerSpec extends SimpleIOSuite {
         zos.closeEntry()
       }
     } finally zos.close()
-    jarPath
+    AbsolutePath(jarPath.toNIO)
   }
 
   private def javaClass(

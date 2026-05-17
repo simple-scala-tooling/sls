@@ -1,8 +1,8 @@
 package org.scala.abusers.sls.index
 
 import cats.effect.IO
+import org.scala.abusers.sls.{AbsolutePath, SourceUri}
 import weaver.*
-import java.net.URI
 import org.objectweb.asm.{ClassWriter, Opcodes}
 import java.io.FileOutputStream
 import java.util.zip.{ZipEntry, ZipOutputStream}
@@ -11,7 +11,7 @@ object IndexManagerSpec extends SimpleIOSuite {
 
   private val bytecodeIndexer = BytecodeIndexer()
 
-  private def createJar(entries: List[(String, Array[Byte])]): IO[os.Path] = IO.blocking {
+  private def createJar(entries: List[(String, Array[Byte])]): IO[AbsolutePath] = IO.blocking {
     val tmp = os.temp.dir(prefix = "index-manager-test")
     val jarPath = tmp / "test.jar"
     val zos = new ZipOutputStream(new FileOutputStream(jarPath.toIO))
@@ -22,7 +22,7 @@ object IndexManagerSpec extends SimpleIOSuite {
         zos.closeEntry()
       }
     } finally zos.close()
-    jarPath
+    AbsolutePath(jarPath.toNIO)
   }
 
   private def javaClass(name: String, access: Int = Opcodes.ACC_PUBLIC): (String, Array[Byte]) = {
@@ -33,7 +33,7 @@ object IndexManagerSpec extends SimpleIOSuite {
   }
 
   test("onFilesDeleted removes symbols from project index") {
-    val uri = URI.create("file:///test/Foo.scala")
+    val uri = SourceUri("file:///test/Foo.scala")
     val sym = IndexedSymbol(
       id = SymbolId("test.Foo"),
       name = "Foo",
@@ -74,7 +74,7 @@ object IndexManagerSpec extends SimpleIOSuite {
       di <- DependencyIndex.empty
       mgr = IndexManager(pi, di, bytecodeIndexer)
       syms <- bytecodeIndexer.indexJar(jar)
-      _ <- di.addJar(jar.toString, syms)
+      _ <- di.addJar(jar.toNioPath.toString, syms)
       found <- di.searchSymbols("widget")
     } yield expect(found.exists(_.name == "Widget"))
   }
@@ -87,13 +87,14 @@ object IndexManagerSpec extends SimpleIOSuite {
       tmp = os.temp.dir(prefix = "corrupt-jar-test")
       corruptJar = tmp / "corrupt.jar"
       _ <- IO.blocking(os.write(corruptJar, "not a jar"))
-      syms <- bytecodeIndexer.indexJar(corruptJar).handleError(_ => Nil)
-      _ <- di.addJar(corruptJar.toString, syms)
+      corruptJarAbs = AbsolutePath(corruptJar.toNIO)
+      syms <- bytecodeIndexer.indexJar(corruptJarAbs).handleError(_ => Nil)
+      _ <- di.addJar(corruptJarAbs.toNioPath.toString, syms)
     } yield success
   }
 
   test("searchSymbols with various query styles finds symbols") {
-    val uri = URI.create("file:///test/HashMap.scala")
+    val uri = SourceUri("file:///test/HashMap.scala")
     val sym = IndexedSymbol(
       id = SymbolId("scala.collection.HashMap"), name = "HashMap", kind = SymbolKind.Class,
       visibility = Visibility.Public, owner = None,
@@ -118,7 +119,7 @@ object IndexManagerSpec extends SimpleIOSuite {
   }
 
   test("SymbolIndex.searchSymbols finds project and dependency symbols") {
-    val uri = URI.create("file:///test/Foo.scala")
+    val uri = SourceUri("file:///test/Foo.scala")
     val projSym = IndexedSymbol(
       id = SymbolId("test.Foo"), name = "Foo", kind = SymbolKind.Class,
       visibility = Visibility.Public, owner = None,
@@ -146,7 +147,7 @@ object IndexManagerSpec extends SimpleIOSuite {
   }
 
   test("CamelCase query 'IO' does not match camelCase 'indexOf'") {
-    val uri = URI.create("file:///test/Stuff.scala")
+    val uri = SourceUri("file:///test/Stuff.scala")
     val sym = IndexedSymbol(
       id = SymbolId("test.indexOf"), name = "indexOf", kind = SymbolKind.Method,
       visibility = Visibility.Public, owner = None,
@@ -165,7 +166,7 @@ object IndexManagerSpec extends SimpleIOSuite {
   }
 
   test("mixed case 'iO' matches camelCase 'iOnly' via name prefix") {
-    val uri = URI.create("file:///test/Stuff.scala")
+    val uri = SourceUri("file:///test/Stuff.scala")
     val sym = IndexedSymbol(
       id = SymbolId("test.iOnly"), name = "iOnly", kind = SymbolKind.Method,
       visibility = Visibility.Public, owner = None,
@@ -184,7 +185,7 @@ object IndexManagerSpec extends SimpleIOSuite {
   }
 
   test("lowercase query 'minutes' matches all-caps 'MINUTES'") {
-    val uri = URI.create("file:///test/Constants.scala")
+    val uri = SourceUri("file:///test/Constants.scala")
     val sym = IndexedSymbol(
       id = SymbolId("java.util.concurrent.TimeUnit.MINUTES"), name = "MINUTES", kind = SymbolKind.Field,
       visibility = Visibility.Public, owner = None,
@@ -203,8 +204,8 @@ object IndexManagerSpec extends SimpleIOSuite {
   }
 
   test("multiple files deleted — all symbols removed") {
-    val uri1 = URI.create("file:///test/A.scala")
-    val uri2 = URI.create("file:///test/B.scala")
+    val uri1 = SourceUri("file:///test/A.scala")
+    val uri2 = SourceUri("file:///test/B.scala")
     val sym1 = IndexedSymbol(
       id = SymbolId("test.A"), name = "A", kind = SymbolKind.Class,
       visibility = Visibility.Public, owner = None,

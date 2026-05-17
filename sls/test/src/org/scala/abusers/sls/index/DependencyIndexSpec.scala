@@ -1,6 +1,7 @@
 package org.scala.abusers.sls.index
 
 import cats.effect.IO
+import org.scala.abusers.sls.SourceUri
 import weaver.*
 
 object DependencyIndexSpec extends SimpleIOSuite {
@@ -74,7 +75,7 @@ object DependencyIndexSpec extends SimpleIOSuite {
       idx <- DependencyIndex.empty
       _ <- idx.addJar(jarA, List(sym("Foo", jarA)))
       before <- idx.getSymbol(SymbolId("pkg.Foo"))
-      loc = Location(java.net.URI("file:///src/Foo.scala"), 10, 0, 10, 20)
+      loc = Location(SourceUri("file:///src/Foo.scala"), 10, 0, 10, 20)
       _ <- idx.updateLocations(Map(SymbolId("pkg.Foo") -> loc))
       after <- idx.getSymbol(SymbolId("pkg.Foo"))
     } yield expect(before.flatMap(_.location).isEmpty) and

@@ -1,7 +1,7 @@
 package org.scala.abusers.sls.index
 
 import cats.effect.{IO, Ref}
-import java.net.URI
+import org.scala.abusers.sls.SourceUri
 
 class ProjectIndex private (state: Ref[IO, ProjectIndex.State]) {
 
@@ -29,7 +29,7 @@ class ProjectIndex private (state: Ref[IO, ProjectIndex.State]) {
       ids.flatMap(s.symbols.get).toList
     }
 
-  def getSymbolsInFile(uri: URI): IO[Set[IndexedSymbol]] =
+  def getSymbolsInFile(uri: SourceUri): IO[Set[IndexedSymbol]] =
     state.get.map { s =>
       s.byFile.getOrElse(uri, Set.empty).flatMap(s.symbols.get)
     }
@@ -37,7 +37,7 @@ class ProjectIndex private (state: Ref[IO, ProjectIndex.State]) {
   def getReferences(id: SymbolId): IO[List[SymbolReference]] =
     state.get.map(_.references.getOrElse(id, Nil))
 
-  def getReferencesInFile(uri: URI): IO[List[SymbolReference]] =
+  def getReferencesInFile(uri: SourceUri): IO[List[SymbolReference]] =
     state.get.map(_.refsByFile.getOrElse(uri, Nil))
 
   def getSubtypes(id: SymbolId): IO[Set[SymbolId]] =
@@ -46,7 +46,7 @@ class ProjectIndex private (state: Ref[IO, ProjectIndex.State]) {
   def getSupertypes(id: SymbolId): IO[List[SymbolId]] =
     state.get.map(s => s.symbols.get(id).map(_.parents).getOrElse(Nil))
 
-  def updateFiles(files: Map[URI, (List[IndexedSymbol], List[SymbolReference])]): IO[Unit] =
+  def updateFiles(files: Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])]): IO[Unit] =
     state.update { s =>
       val totalRefs = files.values.map(_._2.size).sum
       logger.info(s"updateFiles: ${files.size} files, ${files.values.map(_._1.size).sum} symbols, $totalRefs refs. Before: ${s.references.size} ref keys, ${s.symbols.size} symbols")
@@ -60,7 +60,7 @@ class ProjectIndex private (state: Ref[IO, ProjectIndex.State]) {
 
   private val logger = org.slf4j.LoggerFactory.getLogger(this.getClass)
 
-  def removeFiles(uris: Set[URI]): IO[Unit] =
+  def removeFiles(uris: Set[SourceUri]): IO[Unit] =
     state.update { s =>
       logger.info(s"removeFiles called with ${uris.size} URIs, current refs=${s.references.size} keys, symbols=${s.symbols.size}")
       uris.foldLeft(s)(removeFileFromState)
@@ -81,9 +81,9 @@ object ProjectIndex {
       symbols: Map[SymbolId, IndexedSymbol],
       nameTrie: PatriciaTrie[Set[SymbolId]],
       camelCaseTrie: PatriciaTrie[Set[SymbolId]],
-      byFile: Map[URI, Set[SymbolId]],
+      byFile: Map[SourceUri, Set[SymbolId]],
       references: Map[SymbolId, List[SymbolReference]],
-      refsByFile: Map[URI, List[SymbolReference]],
+      refsByFile: Map[SourceUri, List[SymbolReference]],
       subtypes: Map[SymbolId, Set[SymbolId]],
   )
 
@@ -99,7 +99,7 @@ object ProjectIndex {
     )
   }
 
-  private def removeFileFromState(s: State, uri: URI): State = {
+  private def removeFileFromState(s: State, uri: SourceUri): State = {
     val oldIds = s.byFile.getOrElse(uri, Set.empty)
     if oldIds.isEmpty && !s.refsByFile.contains(uri) then return s
 
@@ -149,7 +149,7 @@ object ProjectIndex {
 
   private def addFileToState(
       s: State,
-      uri: URI,
+      uri: SourceUri,
       newSymbols: List[IndexedSymbol],
       newRefs: List[SymbolReference],
   ): State = {
