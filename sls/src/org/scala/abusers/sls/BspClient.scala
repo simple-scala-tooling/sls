@@ -11,15 +11,16 @@ import bsp.ShowMessageParams
 import bsp.TaskProgressParams
 import cats.effect.*
 import cats.syntax.all.*
-import com.comcast.ip4s.*
-import fs2.io.*
-import fs2.io.net.Network
+import fs2.io.process.Process
 import jsonrpclib.fs2.{lsp => jsonrpclibLsp, *}
 import jsonrpclib.Endpoint
 import smithy4sbsp.bsp4s.BSPCodecs
-import fs2.io.process.Process
 
-def makeBspClient(process: Process[IO], channel: FS2Channel[IO], report: String => IO[Unit]): Resource[IO, BuildServer] =
+def makeBspClient(
+    process: Process[IO],
+    channel: FS2Channel[IO],
+    report: String => IO[Unit],
+): Resource[IO, BuildServer] =
   fs2.Stream
     .eval(IO.never)
     .concurrently(
@@ -46,7 +47,6 @@ def makeBspClient(process: Process[IO], channel: FS2Channel[IO], report: String 
     )
 
 def bspClientHandler(lspClient: SlsLanguageClient[IO], diagnosticManager: DiagnosticManager): List[Endpoint[IO]] =
-  import LoggingUtils.*
 
   BSPCodecs
     .serverEndpoints(
