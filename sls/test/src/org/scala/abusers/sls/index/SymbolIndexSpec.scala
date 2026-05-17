@@ -1,12 +1,12 @@
 package org.scala.abusers.sls.index
 
 import cats.effect.IO
+import org.scala.abusers.sls.SourceUri
 import weaver.*
-import java.net.URI
 
 object SymbolIndexSpec extends SimpleIOSuite {
 
-  private val fileA = URI("file:///src/A.scala")
+  private val fileA = SourceUri("file:///src/A.scala")
 
   private def projSym(
       name: String,

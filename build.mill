@@ -1,6 +1,6 @@
 //| mill-repositories: ["https://central.sonatype.com/repository/maven-snapshots/"]
 //| mvnDeps:
-//| - com.disneystreaming.smithy4s::smithy4s-mill-codegen-plugin::0.18.47-0-6b7ca6ac-20260208-2323-SNAPSHOT
+//| - com.disneystreaming.smithy4s::smithy4s-mill-codegen-plugin::0.18.47-3-6f8d4997-20260303-2353-SNAPSHOT
 //| - com.goyeau::mill-scalafix::0.6.0
 
 import mill.javalib.publish.Developer
@@ -10,10 +10,10 @@ import mill.javalib.publish.PomSettings
 import com.goyeau.mill.scalafix.ScalafixModule
 import coursier.core.Repository
 import coursier.maven.MavenRepository
-import mill._
+import mill.*
 import mill.api.Task.Simple.create
-import scalalib._
-import smithy4s.codegen.mill._
+import scalalib.*
+import smithy4s.codegen.mill.*
 
 val jsonrpcVersion     = "0.1.0"
 val smithyVersion      = "1.57.1"
@@ -35,6 +35,7 @@ trait CommonScalaModule extends ScalaModule with ScalafixModule {
 object slsSmithy extends CommonScalaModule with Smithy4sModule {
 
   override def mvnDeps = Seq(
+    mvn"com.disneystreaming.alloy:alloy-core:0.3.36", // Conflict with alloy
     mvn"com.disneystreaming.smithy4s::smithy4s-core:${smithy4sVersion()}",
     mvn"tech.neander:jsonrpclib-smithy:$jsonrpcVersion",
     mvn"io.github.simple-scala-tooling:lsp-smithy-definitions:1f4b6e9",
@@ -115,6 +116,7 @@ object sls extends CommonScalaModule {
 object zincSmithy extends CommonScalaModule with Smithy4sModule with PublishModule {
 
   override def mvnDeps = Seq(
+    mvn"com.disneystreaming.alloy:alloy-core:0.3.36", // Conflict with alloy
     mvn"com.disneystreaming.smithy4s::smithy4s-core:${smithy4sVersion()}",
     mvn"tech.neander:jsonrpclib-smithy:$jsonrpcVersion",
   )

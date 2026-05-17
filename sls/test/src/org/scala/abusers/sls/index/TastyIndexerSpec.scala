@@ -1,8 +1,8 @@
 package org.scala.abusers.sls.index
 
 import cats.effect.IO
+import org.scala.abusers.sls.{AbsolutePath, SourceUri}
 import weaver.*
-import java.net.URI
 
 object TastyIndexerSpec extends SimpleIOSuite {
 
@@ -60,7 +60,7 @@ object TastyIndexerSpec extends SimpleIOSuite {
         |""".stripMargin,
   )
 
-  private def compileAndIndex: IO[(os.Path, Map[URI, (List[IndexedSymbol], List[SymbolReference])])] = IO.blocking {
+  private def compileAndIndex: IO[(os.Path, Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])])] = IO.blocking {
     val tmpDir = os.temp.dir(prefix = "tasty-indexer-test")
     val srcDir = tmpDir / "src"
     val outDir = tmpDir / "out"
@@ -78,12 +78,12 @@ object TastyIndexerSpec extends SimpleIOSuite {
 
     (tmpDir, ())
   }.flatMap { case (tmpDir, _) =>
-    val outDir = tmpDir / "out"
+    val outDir = AbsolutePath((tmpDir / "out").toNIO)
     val indexer = TastyIndexer("test-target")
     indexer.indexDirectory(outDir, Nil).map(result => (tmpDir, result))
   }
 
-  private lazy val indexed: IO[(os.Path, Map[URI, (List[IndexedSymbol], List[SymbolReference])])] =
+  private lazy val indexed: IO[(os.Path, Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])])] =
     compileAndIndex.memoize.flatten
 
   private def allSymbols: IO[List[IndexedSymbol]] =

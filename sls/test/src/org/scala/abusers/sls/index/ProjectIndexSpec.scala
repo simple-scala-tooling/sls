@@ -1,15 +1,15 @@
 package org.scala.abusers.sls.index
 
 import cats.effect.IO
+import org.scala.abusers.sls.SourceUri
 import weaver.*
-import java.net.URI
 
 object ProjectIndexSpec extends SimpleIOSuite {
 
-  private val fileA = URI("file:///src/A.scala")
-  private val fileB = URI("file:///src/B.scala")
+  private val fileA = SourceUri("file:///src/A.scala")
+  private val fileB = SourceUri("file:///src/B.scala")
 
-  private def sym(name: String, file: URI, parents: List[SymbolId] = Nil): IndexedSymbol =
+  private def sym(name: String, file: SourceUri, parents: List[SymbolId] = Nil): IndexedSymbol =
     IndexedSymbol(
       id = SymbolId(s"pkg.$name"),
       name = name,
@@ -22,7 +22,7 @@ object ProjectIndexSpec extends SimpleIOSuite {
       typeSignature = None,
     )
 
-  private def ref(symbolName: String, file: URI): SymbolReference =
+  private def ref(symbolName: String, file: SourceUri): SymbolReference =
     SymbolReference(
       symbol = SymbolId(s"pkg.$symbolName"),
       location = Location(file, 5, 0, 5, 10),
@@ -132,7 +132,7 @@ object ProjectIndexSpec extends SimpleIOSuite {
     for {
       idx <- ProjectIndex.empty
       files = (0 until 100).map { i =>
-        val uri = URI(s"file:///src/F$i.scala")
+        val uri = SourceUri(s"file:///src/F$i.scala")
         uri -> (List(sym(s"Sym$i", uri)), Nil)
       }
       _ <- IO.parTraverseN(10)(files.toList)(f => idx.updateFiles(Map(f)))

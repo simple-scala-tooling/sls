@@ -1,9 +1,9 @@
 package org.scala.abusers.sls.index
 
 import cats.effect.IO
-import java.net.URI
 import java.io.{OutputStream, PrintStream}
 import java.util.zip.ZipFile
+import org.scala.abusers.sls.{AbsolutePath, SourceUri, toSourceUri}
 import org.slf4j.LoggerFactory
 
 
@@ -11,39 +11,41 @@ class TastyIndexer(buildTarget: String) {
   private val logger = LoggerFactory.getLogger(this.getClass)
 
   def indexFiles(
-      tastyFiles: List[os.Path],
-      classpath: List[os.Path],
-  ): IO[Map[URI, (List[IndexedSymbol], List[SymbolReference])]] =
-    IO.blocking(runInspector(tastyFiles.map(_.toString), Nil, classpath.map(_.toString)))
+      tastyFiles: List[AbsolutePath],
+      classpath: List[AbsolutePath],
+  ): IO[Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])]] =
+    IO.blocking(runInspector(tastyFiles.map(_.toNioPath.toString), Nil, classpath.map(_.toNioPath.toString)))
 
   def indexDirectory(
-      classesDir: os.Path,
-      classpath: List[os.Path],
-  ): IO[Map[URI, (List[IndexedSymbol], List[SymbolReference])]] =
+      classesDir: AbsolutePath,
+      classpath: List[AbsolutePath],
+  ): IO[Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])]] =
     IO.blocking {
-      val tastyFiles = os.walk(classesDir).filter(_.ext == "tasty").toList
-      runInspector(tastyFiles.map(_.toString), Nil, classpath.map(_.toString))
+      val tastyFiles = java.nio.file.Files.walk(classesDir.toNioPath)
+        .filter(p => p.toString.endsWith(".tasty"))
+        .toArray.toList.map(_.asInstanceOf[java.nio.file.Path].toString)
+      runInspector(tastyFiles, Nil, classpath.map(_.toNioPath.toString))
     }
 
   def indexJar(
-      jarPath: os.Path,
-      classpath: List[os.Path],
-  ): IO[Map[URI, (List[IndexedSymbol], List[SymbolReference])]] =
-    IO.blocking(runInspector(Nil, List(jarPath.toString), classpath.map(_.toString)))
+      jarPath: AbsolutePath,
+      classpath: List[AbsolutePath],
+  ): IO[Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])]] =
+    IO.blocking(runInspector(Nil, List(jarPath.toNioPath.toString), classpath.map(_.toNioPath.toString)))
 
   def indexBetastyJar(
-      jarPath: os.Path,
-      classpath: List[os.Path],
+      jarPath: AbsolutePath,
+      classpath: List[AbsolutePath],
       onlyEntries: Set[String] = Set.empty,
-  ): IO[Map[URI, (List[IndexedSymbol], List[SymbolReference])]] =
+  ): IO[Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])]] =
     IO.blocking {
       val tempDir = java.nio.file.Files.createTempDirectory("betasty-extract")
       try {
         val betastyFiles = extractBetastyFiles(jarPath, tempDir, onlyEntries)
         if betastyFiles.isEmpty then Map.empty
-        else runBetastyInspector(betastyFiles.map(_.toString), Nil, classpath.map(_.toString))
+        else runBetastyInspector(betastyFiles.map(_.toString), Nil, classpath.map(_.toNioPath.toString))
       } finally {
-        os.remove.all(os.Path(tempDir))
+        AbsolutePath(tempDir).deleteRecursively
       }
     }
 
@@ -55,7 +57,7 @@ class TastyIndexer(buildTarget: String) {
       tastyFiles: List[String],
       jars: List[String],
       classpath: List[String],
-  ): Map[URI, (List[IndexedSymbol], List[SymbolReference])] = {
+  ): Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])] = {
     val collector = new SymbolCollector(buildTarget)
     TastyIndexer.suppressedThreads.set(true)
     try {
@@ -70,9 +72,9 @@ class TastyIndexer(buildTarget: String) {
     collector.result
   }
 
-  private def extractBetastyFiles(jarPath: os.Path, destDir: java.nio.file.Path, onlyEntries: Set[String] = Set.empty): List[java.nio.file.Path] = {
+  private def extractBetastyFiles(jarPath: AbsolutePath, destDir: java.nio.file.Path, onlyEntries: Set[String] = Set.empty): List[java.nio.file.Path] = {
     val files = scala.collection.mutable.ListBuffer.empty[java.nio.file.Path]
-    val zf = new ZipFile(jarPath.toIO)
+    val zf = new ZipFile(jarPath.toFile)
     try {
       val entries = zf.entries()
       while (entries.hasMoreElements) {
@@ -94,7 +96,7 @@ class TastyIndexer(buildTarget: String) {
       betastyFiles: List[String],
       jars: List[String],
       classpath: List[String],
-  ): Map[URI, (List[IndexedSymbol], List[SymbolReference])] = {
+  ): Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])] = {
     logger.info(s"runBetastyInspector: ${betastyFiles.size} betasty files, ${jars.size} jars, ${classpath.size} classpath entries")
     betastyFiles.foreach(f => logger.debug(s"  betasty file: $f"))
     val collector = new SymbolCollector(buildTarget)
@@ -119,10 +121,10 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
   import scala.collection.mutable
 
   private val logger = LoggerFactory.getLogger(classOf[SymbolCollector])
-  private val symbols = mutable.Map.empty[URI, mutable.ListBuffer[IndexedSymbol]]
-  private val references = mutable.Map.empty[URI, mutable.ListBuffer[SymbolReference]]
+  private val symbols = mutable.Map.empty[SourceUri, mutable.ListBuffer[IndexedSymbol]]
+  private val references = mutable.Map.empty[SourceUri, mutable.ListBuffer[SymbolReference]]
 
-  def result: Map[URI, (List[IndexedSymbol], List[SymbolReference])] = {
+  def result: Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])] = {
     val allUris = symbols.keySet ++ references.keySet
     allUris.map { uri =>
       uri -> (
@@ -295,12 +297,12 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
         sym.name
       })
 
-    def sourceFileUri(sym: Symbol): Option[URI] =
+    def sourceFileUri(sym: Symbol): Option[SourceUri] =
       try {
         val pos = sym.pos
         if pos.isDefined then {
           val path = pos.get.sourceFile.path
-          if path != null then Some(java.nio.file.Path.of(path).toUri)
+          if path != null then Some(java.nio.file.Path.of(path).toSourceUri)
           else {
             // logger.debug(s"sourceFileUri: null path for symbol ${sym.name}")
             None
@@ -314,10 +316,10 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
         None
       }
 
-    def posSourceUri(pos: Position): Option[URI] =
+    def posSourceUri(pos: Position): Option[SourceUri] =
       try {
         val path = pos.sourceFile.path
-        if path != null then Some(java.nio.file.Path.of(path).toUri)
+        if path != null then Some(java.nio.file.Path.of(path).toSourceUri)
         else {
           // logger.debug(s"posSourceUri: null path")
           None
@@ -327,7 +329,7 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
         None
       }
 
-    def symbolLocation(sym: Symbol, uri: URI): Option[Location] =
+    def symbolLocation(sym: Symbol, uri: SourceUri): Option[Location] =
       try {
         val pos = sym.pos
         if pos.isDefined then {
@@ -397,10 +399,10 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
       }
   }
 
-  private def addSymbol(uri: URI, sym: IndexedSymbol): Unit =
+  private def addSymbol(uri: SourceUri, sym: IndexedSymbol): Unit =
     symbols.getOrElseUpdate(uri, scala.collection.mutable.ListBuffer.empty) += sym
 
-  private def addReference(uri: URI, ref: SymbolReference): Unit =
+  private def addReference(uri: SourceUri, ref: SymbolReference): Unit =
     references.getOrElseUpdate(uri, scala.collection.mutable.ListBuffer.empty) += ref
 }
 

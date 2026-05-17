@@ -1,7 +1,7 @@
 package org.scala.abusers.sls.index
 
 import cats.effect.IO
-import java.net.URI
+import org.scala.abusers.sls.SourceUri
 import scala.concurrent.duration.*
 
 class SymbolIndex(
@@ -50,7 +50,7 @@ class SymbolIndex(
       ids.toList.traverse(getSymbol).map(_.flatten.filter(isConcrete).toSet)
     }
 
-  def resolveSymbolAtPosition(uri: URI, line: Int, col: Int): IO[Option[IndexedSymbol]] =
+  def resolveSymbolAtPosition(uri: SourceUri, line: Int, col: Int): IO[Option[IndexedSymbol]] =
     project.getSymbolsInFile(uri).map { symbols =>
       symbols.toList
         .filter(s => containsPosition(s.location, line, col))
