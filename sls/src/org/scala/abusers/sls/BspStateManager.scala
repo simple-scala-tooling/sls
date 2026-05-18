@@ -5,16 +5,16 @@ import bsp.scala_.ScalacOptionsParams
 import bsp.BuildTarget.BuildTargetScalaBuildTarget
 import bsp.CompileParams
 import bsp.InverseSourcesParams
+import bsp.SourcesParams
 import cats.effect.kernel.Ref
 import cats.effect.std.AtomicCell
 import cats.effect.IO
+import org.scala.abusers.csp.CompileOutput
+import org.scala.abusers.csp.CspServer
 import org.scala.abusers.pc.ScalaVersion
 import org.scala.abusers.sls.LoggingUtils.*
 
-import bsp.SourcesParams
 import java.nio.file.Paths
-import org.scala.abusers.csp.CspServer
-import org.scala.abusers.csp.CompileOutput
 
 case class ScalaBuildTargetInformation(
     scalacOptions: ScalacOptionsItem,
@@ -22,12 +22,20 @@ case class ScalaBuildTargetInformation(
     sources: bsp.SourcesItem,
 ) {
   // Refactor this to some other way
-  val displayName = buildTarget.displayName.getOrElse("unknown-target") // log that there is no name ?
-  val classJarPath: AbsolutePath = AbsolutePath(Paths.get("./.sls/classes/")
-    .resolve(s"$displayName.jar").toAbsolutePath())
+  val displayName                = buildTarget.displayName.getOrElse("unknown-target") // log that there is no name ?
+  val classJarPath: AbsolutePath = AbsolutePath(
+    Paths
+      .get("./.sls/classes/")
+      .resolve(s"$displayName.jar")
+      .toAbsolutePath()
+  )
 
-  val classesDir: AbsolutePath = AbsolutePath(Paths.get("./.sls/classes/")
-    .resolve(s"$displayName/").toAbsolutePath())
+  val classesDir: AbsolutePath = AbsolutePath(
+    Paths
+      .get("./.sls/classes/")
+      .resolve(s"$displayName/")
+      .toAbsolutePath()
+  )
 }
 
 object ScalaBuildTargetInformation {
@@ -44,7 +52,11 @@ object ScalaBuildTargetInformation {
 
 object BspStateManager {
 
-  def instance(lspClient: SlsLanguageClient[IO], bspServer: BuildServer, cspServer: CspServer[IO]): IO[BspStateManager] =
+  def instance(
+      lspClient: SlsLanguageClient[IO],
+      bspServer: BuildServer,
+      cspServer: CspServer[IO],
+  ): IO[BspStateManager] =
     // We should track this in progress bar. Think of this as `Import Build`
     for {
       sourcesToTargets <- AtomicCell[IO].of(Map[SourceUri, ScalaBuildTargetInformation]())
@@ -69,7 +81,7 @@ class BspStateManager(
 
   def getAllTargets: IO[Set[ScalaBuildTargetInformation]] = targets.get
 
-  def compileWithCSP(uri: SourceUri)(using SynchronizedState): IO[CompileOutput] = {
+  def compileWithCSP(uri: SourceUri)(using SynchronizedState): IO[CompileOutput] =
     get(uri).flatMap { info =>
       cspServer.compile(
         scopeId = info.buildTarget.displayName.getOrElse("default"),
@@ -77,10 +89,9 @@ class BspStateManager(
         sourcePath = info.sources.sources.map(p => p.uri.toSourceUri.toPath.toNioPath.toString),
         scalaVersion = org.scala.abusers.csp.ScalaVersion(info.buildTarget.data.scalaVersion),
         scalacOptions = info.scalacOptions.options,
-        javacOptions = Nil
+        javacOptions = Nil,
       )
     }
-  }
 
   def importBuild =
     for {
@@ -99,7 +110,7 @@ class BspStateManager(
   private def getBuildInformation(bspServer: BuildServer): IO[Set[ScalaBuildTargetInformation]] =
     for {
       workspaceBuildTargets <- bspServer.generic.workspaceBuildTargets()
-      scalacOptions <- bspServer.scala.buildTargetScalacOptions(
+      scalacOptions         <- bspServer.scala.buildTargetScalacOptions(
         ScalacOptionsParams(targets = workspaceBuildTargets.targets.map(_.id))
       )
       targetSources <- bspServer.generic.buildTargetSources(SourcesParams(workspaceBuildTargets.targets.map(_.id)))
@@ -125,13 +136,19 @@ class BspStateManager(
       scalacOptions: bsp.scala_.ScalacOptionsResult,
       sources: bsp.SourcesResult,
   ): Set[ScalaBuildTargetInformation] = {
-    val targets = targets0.targets.filterNot(isSyntheticTarget)
-    val scalacOptions0 = scalacOptions.items.map(item => item.target -> item).toMap
-    val sources0 = sources.items.map(item => item.target -> item).toMap
+    val targets                            = targets0.targets.filterNot(isSyntheticTarget)
+    val scalacOptions0                     = scalacOptions.items.map(item => item.target -> item).toMap
+    val sources0                           = sources.items.map(item => item.target -> item).toMap
     val (mismatchedTargets, zippedTargets) = targets.partitionMap { target =>
       (scalacOptions0.get(target.id), sources0.get(target.id)) match {
         case (Some(scalacOptionsItem), Some(sources)) if target.project.scala.isDefined =>
-          Right(ScalaBuildTargetInformation(scalacOptions = scalacOptionsItem, buildTarget = target.project.scala.get, sources = sources))
+          Right(
+            ScalaBuildTargetInformation(
+              scalacOptions = scalacOptionsItem,
+              buildTarget = target.project.scala.get,
+              sources = sources,
+            )
+          )
         case _ => Left(target.id)
       }
     }

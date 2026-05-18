@@ -16,9 +16,10 @@ case class DocumentState(content: String, uri: SourceUri) {
   def processEdits(edits: List[lsp.TextDocumentContentChangeEvent]): DocumentState =
     edits.toList
       .foldLeft(this) {
-        case (currentState, lsp.TextDocumentContentChangeEvent.Case0Case(incremental)) => currentState.applyEdit(incremental)
-        case (_, lsp.TextDocumentContentChangeEvent.Case1Case(full))        => DocumentState(full.text, uri)
-        case _                                                              => sys.error("Illegal State Exception")
+        case (currentState, lsp.TextDocumentContentChangeEvent.Case0Case(incremental)) =>
+          currentState.applyEdit(incremental)
+        case (_, lsp.TextDocumentContentChangeEvent.Case1Case(full)) => DocumentState(full.text, uri)
+        case _                                                       => sys.error("Illegal State Exception")
       }
 
   private def applyEdit(edit: lsp.TextDocumentContentChangePartial): DocumentState = {
@@ -63,7 +64,7 @@ class TextDocumentSyncManager(val documents: AtomicCell[IO, Map[SourceUri, Docum
     documents.modify { access =>
       access.get(uri) match {
         case Some(doc) => access -> doc
-        case None =>
+        case None      =>
           val newDoc = new DocumentState(content.getOrElse(""), uri)
           access.updated(uri, newDoc) -> newDoc
       }

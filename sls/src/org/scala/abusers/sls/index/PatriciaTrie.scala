@@ -9,12 +9,11 @@ class PatriciaTrie[V] private (private val root: PatriciaTrie.Node[V], val size:
     PatriciaTrie(newRoot, if replaced then size else size + 1)
   }
 
-  def remove(key: String): PatriciaTrie[V] = {
+  def remove(key: String): PatriciaTrie[V] =
     removeNode(root, key, 0) match {
       case Some(newRoot) => PatriciaTrie(newRoot, size - 1)
       case None          => this
     }
-  }
 
   def get(key: String): Option[V] = getNode(root, key, 0)
 
@@ -50,10 +49,10 @@ object PatriciaTrie {
   }
 
   private def insertNode[V](node: Node[V], key: String, offset: Int, value: V): (Node[V], Boolean) =
-    if offset == key.length then
+    if offset == key.length then {
       val replaced = node.value.isDefined
       (node.copy(value = Some(value)), replaced)
-    else {
+    } else {
       val c = key.charAt(offset)
       node.children.get(c) match {
         case None =>
@@ -63,13 +62,13 @@ object PatriciaTrie {
 
         case Some((label, child)) =>
           val cpl = commonPrefixLength(label, 0, key, offset)
-          if cpl == label.length then
+          if cpl == label.length then {
             val (newChild, replaced) = insertNode(child, key, offset + cpl, value)
             (node.copy(children = node.children + (c -> (label, newChild))), replaced)
-          else {
+          } else {
             // Split edge
-            val splitLabel = label.substring(0, cpl)
-            val oldSuffix = label.substring(cpl)
+            val splitLabel    = label.substring(0, cpl)
+            val oldSuffix     = label.substring(cpl)
             val oldSuffixChar = oldSuffix.charAt(0)
 
             val splitNode =
@@ -78,10 +77,10 @@ object PatriciaTrie {
                 val newChildren = Map(oldSuffixChar -> (oldSuffix, child))
                 Node(Some(value), newChildren)
               } else {
-                val newSuffix = key.substring(offset + cpl)
+                val newSuffix     = key.substring(offset + cpl)
                 val newSuffixChar = newSuffix.charAt(0)
-                val newLeaf = Node[V](Some(value), Map.empty)
-                val newChildren = Map(
+                val newLeaf       = Node[V](Some(value), Map.empty)
+                val newChildren   = Map(
                   oldSuffixChar -> (oldSuffix, child),
                   newSuffixChar -> (newSuffix, newLeaf),
                 )
@@ -103,17 +102,16 @@ object PatriciaTrie {
     } else {
       val c = key.charAt(offset)
       node.children.get(c) match {
-        case None => None
+        case None                 => None
         case Some((label, child)) =>
           val cpl = commonPrefixLength(label, 0, key, offset)
           if cpl < label.length then None // key not found
           else
             removeNode(child, key, offset + cpl) match {
-              case None => None // key not found deeper
+              case None           => None // key not found deeper
               case Some(newChild) =>
                 val newNode =
-                  if newChild.value.isEmpty && newChild.children.isEmpty then
-                    node.copy(children = node.children - c)
+                  if newChild.value.isEmpty && newChild.children.isEmpty then node.copy(children = node.children - c)
                   else
                     node.copy(children = node.children + (c -> (label, newChild)))
                 Some(compress(newNode))
@@ -128,7 +126,7 @@ object PatriciaTrie {
       else if child.value.isEmpty && child.children.size == 1 then {
         // Merge: node (no value, 1 child) -> child (no value, 1 child) => merge labels
         val (_, (childLabel, grandchild)) = child.children.head
-        val merged = label + childLabel
+        val merged                        = label + childLabel
         Node(None, Map(merged.charAt(0) -> (merged, grandchild)))
       } else node
     } else node
@@ -138,12 +136,12 @@ object PatriciaTrie {
     else {
       val c = key.charAt(offset)
       node.children.get(c) match {
-        case None => None
+        case None                 => None
         case Some((label, child)) =>
           val cpl = commonPrefixLength(label, 0, key, offset)
           if cpl < label.length then None
           else getNode(child, key, offset + cpl)
-        }
+      }
     }
 
   private def prefixSearchNode[V](
@@ -153,20 +151,18 @@ object PatriciaTrie {
       currentKey: String,
       buf: collection.mutable.Builder[(String, V), List[(String, V)]],
   ): Unit =
-    if offset >= prefix.length then
-      collectAll(node, currentKey, buf)
+    if offset >= prefix.length then collectAll(node, currentKey, buf)
     else {
       val c = prefix.charAt(offset)
       node.children.get(c) match {
-        case None => ()
+        case None                 => ()
         case Some((label, child)) =>
           val cpl = commonPrefixLength(label, 0, prefix, offset)
-          if cpl == label.length then
-            prefixSearchNode(child, prefix, offset + cpl, currentKey + label, buf)
+          if cpl == label.length then prefixSearchNode(child, prefix, offset + cpl, currentKey + label, buf)
           else if offset + cpl >= prefix.length then
-            // prefix ends in the middle of this edge — all descendants match
-            collectAll(child, currentKey + label, buf)
-          // else: mismatch within edge, no results
+          // prefix ends in the middle of this edge — all descendants match
+          collectAll(child, currentKey + label, buf)
+        // else: mismatch within edge, no results
       }
     }
 

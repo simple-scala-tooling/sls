@@ -1,8 +1,9 @@
 package org.scala.abusers.sls
 
 import cats.effect.*
-import cats.Show
 import cats.effect.std.Console
+import cats.Show
+
 import java.nio.charset.Charset
 
 class ErrorOutConsole extends Console[IO] {

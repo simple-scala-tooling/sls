@@ -1,6 +1,7 @@
 package org.scala.abusers.sls.index
 
-import cats.effect.{IO, Ref}
+import cats.effect.IO
+import cats.effect.Ref
 
 class DependencyIndex private (state: Ref[IO, DependencyIndex.State]) {
 
@@ -51,7 +52,7 @@ class DependencyIndex private (state: Ref[IO, DependencyIndex.State]) {
     }
 
   def symbolCount: IO[Int] = state.get.map(_.symbols.size)
-  def jarCount: IO[Int] = state.get.map(_.jarFilters.size)
+  def jarCount: IO[Int]    = state.get.map(_.jarFilters.size)
 }
 
 object DependencyIndex {
@@ -80,15 +81,15 @@ object DependencyIndex {
   }
 
   private def addJarToState(s: State, jarPath: String, newSymbols: List[IndexedSymbol]): State = {
-    var symbols = s.symbols
-    var nameTrie = s.nameTrie
+    var symbols       = s.symbols
+    var nameTrie      = s.nameTrie
     var camelCaseTrie = s.camelCaseTrie
-    var subtypesMap = s.subtypes
-    var symbolJar = s.symbolJar
-    var bloom = BloomFilter(math.max(newSymbols.size, 16), 0.01)
+    var subtypesMap   = s.subtypes
+    var symbolJar     = s.symbolJar
+    var bloom         = BloomFilter(math.max(newSymbols.size, 16), 0.01)
 
     newSymbols.foreach { sym =>
-      symbols = symbols + (sym.id -> sym)
+      symbols = symbols + (sym.id     -> sym)
       symbolJar = symbolJar + (sym.id -> jarPath)
 
       val lower = sym.name.toLowerCase

@@ -1,11 +1,14 @@
 package org.scala.abusers.sls.index
 
 import cats.effect.IO
-import java.io.{OutputStream, PrintStream}
-import java.util.zip.ZipFile
-import org.scala.abusers.sls.{AbsolutePath, SourceUri, toSourceUri}
+import org.scala.abusers.sls.toSourceUri
+import org.scala.abusers.sls.AbsolutePath
+import org.scala.abusers.sls.SourceUri
 import org.slf4j.LoggerFactory
 
+import java.io.OutputStream
+import java.io.PrintStream
+import java.util.zip.ZipFile
 
 class TastyIndexer(buildTarget: String) {
   private val logger = LoggerFactory.getLogger(this.getClass)
@@ -21,9 +24,12 @@ class TastyIndexer(buildTarget: String) {
       classpath: List[AbsolutePath],
   ): IO[Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])]] =
     IO.blocking {
-      val tastyFiles = java.nio.file.Files.walk(classesDir.toNioPath)
+      val tastyFiles = java.nio.file.Files
+        .walk(classesDir.toNioPath)
         .filter(p => p.toString.endsWith(".tasty"))
-        .toArray.toList.map(_.asInstanceOf[java.nio.file.Path].toString)
+        .toArray
+        .toList
+        .map(_.asInstanceOf[java.nio.file.Path].toString)
       runInspector(tastyFiles, Nil, classpath.map(_.toNioPath.toString))
     }
 
@@ -44,14 +50,12 @@ class TastyIndexer(buildTarget: String) {
         val betastyFiles = extractBetastyFiles(jarPath, tempDir, onlyEntries)
         if betastyFiles.isEmpty then Map.empty
         else runBetastyInspector(betastyFiles.map(_.toString), Nil, classpath.map(_.toNioPath.toString))
-      } finally {
+      } finally
         AbsolutePath(tempDir).deleteRecursively
-      }
     }
 
-  /** Run the TASTy inspector, catching any Throwable (including compiler
-    * Errors like AssertionError, LinkageError, etc.) and suppressing stdout
-    * on the current thread to prevent corrupting the JSON-RPC pipe.
+  /** Run the TASTy inspector, catching any Throwable (including compiler Errors like AssertionError, LinkageError,
+    * etc.) and suppressing stdout on the current thread to prevent corrupting the JSON-RPC pipe.
     */
   private def runInspector(
       tastyFiles: List[String],
@@ -60,33 +64,37 @@ class TastyIndexer(buildTarget: String) {
   ): Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])] = {
     val collector = new SymbolCollector(buildTarget)
     TastyIndexer.suppressedThreads.set(true)
-    try {
+    try
       TastyInspectorDriver.inspectTastyFiles(tastyFiles, jars, classpath)(collector)
-    } catch {
+    catch {
       case t: Throwable =>
         val target = if jars.nonEmpty then jars.mkString(", ") else tastyFiles.take(3).mkString(", ")
         logger.error(s"TASTy inspector crash for $target", t)
-    } finally {
+    } finally
       TastyIndexer.suppressedThreads.set(false)
-    }
     collector.result
   }
 
-  private def extractBetastyFiles(jarPath: AbsolutePath, destDir: java.nio.file.Path, onlyEntries: Set[String] = Set.empty): List[java.nio.file.Path] = {
+  private def extractBetastyFiles(
+      jarPath: AbsolutePath,
+      destDir: java.nio.file.Path,
+      onlyEntries: Set[String] = Set.empty,
+  ): List[java.nio.file.Path] = {
     val files = scala.collection.mutable.ListBuffer.empty[java.nio.file.Path]
-    val zf = new ZipFile(jarPath.toFile)
+    val zf    = new ZipFile(jarPath.toFile)
     try {
       val entries = zf.entries()
       while (entries.hasMoreElements) {
-        val entry = entries.nextElement()
+        val entry         = entries.nextElement()
         val matchesFilter = onlyEntries.isEmpty || onlyEntries.contains(entry.getName)
-        if entry.getName.endsWith(".betasty") && !entry.isDirectory && matchesFilter then
+        if entry.getName.endsWith(".betasty") && !entry.isDirectory && matchesFilter then {
           val outPath = destDir.resolve(entry.getName)
           java.nio.file.Files.createDirectories(outPath.getParent)
           val is = zf.getInputStream(entry)
           try java.nio.file.Files.copy(is, outPath)
           finally is.close()
           files += outPath
+        }
       }
     } finally zf.close()
     files.toList
@@ -97,7 +105,9 @@ class TastyIndexer(buildTarget: String) {
       jars: List[String],
       classpath: List[String],
   ): Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])] = {
-    logger.info(s"runBetastyInspector: ${betastyFiles.size} betasty files, ${jars.size} jars, ${classpath.size} classpath entries")
+    logger.info(
+      s"runBetastyInspector: ${betastyFiles.size} betasty files, ${jars.size} jars, ${classpath.size} classpath entries"
+    )
     betastyFiles.foreach(f => logger.debug(s"  betasty file: $f"))
     val collector = new SymbolCollector(buildTarget)
     TastyIndexer.suppressedThreads.set(true)
@@ -108,9 +118,8 @@ class TastyIndexer(buildTarget: String) {
       case t: Throwable =>
         val target = if jars.nonEmpty then jars.mkString(", ") else betastyFiles.take(3).mkString(", ")
         logger.error(s"BeTASTy inspector crash for $target", t)
-    } finally {
+    } finally
       TastyIndexer.suppressedThreads.set(false)
-    }
     val result = collector.result
     logger.info(s"runBetastyInspector result: ${result.size} files, ${result.values.map(_._1.size).sum} symbols")
     result
@@ -120,8 +129,8 @@ class TastyIndexer(buildTarget: String) {
 private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector.Inspector {
   import scala.collection.mutable
 
-  private val logger = LoggerFactory.getLogger(classOf[SymbolCollector])
-  private val symbols = mutable.Map.empty[SourceUri, mutable.ListBuffer[IndexedSymbol]]
+  private val logger     = LoggerFactory.getLogger(classOf[SymbolCollector])
+  private val symbols    = mutable.Map.empty[SourceUri, mutable.ListBuffer[IndexedSymbol]]
   private val references = mutable.Map.empty[SourceUri, mutable.ListBuffer[SymbolReference]]
 
   def result: Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])] = {
@@ -140,8 +149,8 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
     logger.info(s"SymbolCollector.inspect called with ${tastys.size} tasty units for buildTarget=$buildTarget")
 
     lazy val indexTraverser: TreeTraverser = new TreeTraverser {
-      override def traverseTree(tree: Tree)(owner: Symbol): Unit = {
-        try {
+      override def traverseTree(tree: Tree)(owner: Symbol): Unit =
+        try
           tree match {
             case cd: ClassDef if !shouldSkipSymbol(cd.symbol) =>
               processClassDef(cd, owner)
@@ -163,12 +172,12 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
             case _ =>
               traverseTreeChildren(tree)(owner)
           }
-        } catch {
+        catch {
           case e: Exception =>
             logger.debug(s"traverseTree failed for ${tree.getClass.getSimpleName}: ${e.getMessage}")
-            try traverseTreeChildren(tree)(owner) catch { case _: Exception => () }
+            try traverseTreeChildren(tree)(owner)
+            catch { case _: Exception => () }
         }
-      }
     }
 
     tastys.foreach { tasty =>
@@ -179,27 +188,37 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
         case e: Exception => logger.error(s"Failed to process tasty ${tasty.path}: ${e.getMessage}", e)
       }
     }
-    logger.info(s"SymbolCollector finished: ${symbols.values.map(_.size).sum} symbols, ${references.values.map(_.size).sum} references across ${symbols.size} files")
+    logger.info(
+      s"SymbolCollector finished: ${symbols.values.map(_.size).sum} symbols, ${references.values.map(_.size).sum} references across ${symbols.size} files"
+    )
 
     def processClassDef(cd: ClassDef, owner: Symbol): Unit = {
-      val sym = cd.symbol
-      val symId = mkSymbolId(sym)
-      val ownerId = if owner.isNoSymbol then None else Some(mkSymbolId(owner))
+      val sym       = cd.symbol
+      val symId     = mkSymbolId(sym)
+      val ownerId   = if owner.isNoSymbol then None else Some(mkSymbolId(owner))
       val sourceUri = sourceFileUri(sym)
 
       sourceUri.foreach { uri =>
-        val kind = classKind(sym)
-        val vis = extractVisibility(sym)
+        val kind    = classKind(sym)
+        val vis     = extractVisibility(sym)
         val parents = extractParents(cd)
-        val loc = symbolLocation(sym, uri)
-        val sig = tryOpt(sym.fullName)
+        val loc     = symbolLocation(sym, uri)
+        val sig     = tryOpt(sym.fullName)
 
-        addSymbol(uri, IndexedSymbol(
-          id = symId, name = sym.name, kind = kind, visibility = vis,
-          owner = ownerId, location = loc,
-          origin = SymbolOrigin.ProjectTasty(buildTarget, uri),
-          parents = parents, typeSignature = sig,
-        ))
+        addSymbol(
+          uri,
+          IndexedSymbol(
+            id = symId,
+            name = sym.name,
+            kind = kind,
+            visibility = vis,
+            owner = ownerId,
+            location = loc,
+            origin = SymbolOrigin.ProjectTasty(buildTarget, uri),
+            parents = parents,
+            typeSignature = sig,
+          ),
+        )
 
         parents.foreach { parentId =>
           loc.foreach(l => addReference(uri, SymbolReference(parentId, l, ReferenceKind.Extends)))
@@ -208,35 +227,43 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
     }
 
     def processDefDef(dd: DefDef, owner: Symbol): Unit = {
-      val sym = dd.symbol
-      val symId = mkSymbolId(sym)
-      val ownerId = if owner.isNoSymbol then None else Some(mkSymbolId(owner))
+      val sym       = dd.symbol
+      val symId     = mkSymbolId(sym)
+      val ownerId   = if owner.isNoSymbol then None else Some(mkSymbolId(owner))
       val sourceUri = sourceFileUri(sym)
 
       sourceUri.foreach { uri =>
         val kind = if sym.isClassConstructor then SymbolKind.Constructor else SymbolKind.Method
-        val vis = extractVisibility(sym)
-        val loc = symbolLocation(sym, uri)
+        val vis  = extractVisibility(sym)
+        val loc  = symbolLocation(sym, uri)
 
-        addSymbol(uri, IndexedSymbol(
-          id = symId, name = sym.name, kind = kind, visibility = vis,
-          owner = ownerId, location = loc,
-          origin = SymbolOrigin.ProjectTasty(buildTarget, uri),
-          parents = Nil, typeSignature = tryOpt(sym.fullName),
-        ))
+        addSymbol(
+          uri,
+          IndexedSymbol(
+            id = symId,
+            name = sym.name,
+            kind = kind,
+            visibility = vis,
+            owner = ownerId,
+            location = loc,
+            origin = SymbolOrigin.ProjectTasty(buildTarget, uri),
+            parents = Nil,
+            typeSignature = tryOpt(sym.fullName),
+          ),
+        )
 
-        try {
+        try
           sym.allOverriddenSymbols.foreach { overridden =>
             loc.foreach(l => addReference(uri, SymbolReference(mkSymbolId(overridden), l, ReferenceKind.Override)))
           }
-        } catch { case e: Exception => () }
+        catch { case e: Exception => () }
       }
     }
 
     def processValDef(vd: ValDef, owner: Symbol): Unit = {
-      val sym = vd.symbol
-      val symId = mkSymbolId(sym)
-      val ownerId = if owner.isNoSymbol then None else Some(mkSymbolId(owner))
+      val sym       = vd.symbol
+      val symId     = mkSymbolId(sym)
+      val ownerId   = if owner.isNoSymbol then None else Some(mkSymbolId(owner))
       val sourceUri = sourceFileUri(sym)
 
       sourceUri.foreach { uri =>
@@ -247,41 +274,57 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
         val vis = extractVisibility(sym)
         val loc = symbolLocation(sym, uri)
 
-        addSymbol(uri, IndexedSymbol(
-          id = symId, name = sym.name, kind = kind, visibility = vis,
-          owner = ownerId, location = loc,
-          origin = SymbolOrigin.ProjectTasty(buildTarget, uri),
-          parents = Nil, typeSignature = tryOpt(sym.fullName),
-        ))
+        addSymbol(
+          uri,
+          IndexedSymbol(
+            id = symId,
+            name = sym.name,
+            kind = kind,
+            visibility = vis,
+            owner = ownerId,
+            location = loc,
+            origin = SymbolOrigin.ProjectTasty(buildTarget, uri),
+            parents = Nil,
+            typeSignature = tryOpt(sym.fullName),
+          ),
+        )
       }
     }
 
     def processTypeDef(td: TypeDef, owner: Symbol): Unit = {
-      val sym = td.symbol
-      val symId = mkSymbolId(sym)
-      val ownerId = if owner.isNoSymbol then None else Some(mkSymbolId(owner))
+      val sym       = td.symbol
+      val symId     = mkSymbolId(sym)
+      val ownerId   = if owner.isNoSymbol then None else Some(mkSymbolId(owner))
       val sourceUri = sourceFileUri(sym)
 
       sourceUri.foreach { uri =>
         val kind = if sym.flags.is(Flags.Param) then SymbolKind.TypeParam else SymbolKind.TypeAlias
-        val vis = extractVisibility(sym)
-        val loc = symbolLocation(sym, uri)
+        val vis  = extractVisibility(sym)
+        val loc  = symbolLocation(sym, uri)
 
-        addSymbol(uri, IndexedSymbol(
-          id = symId, name = sym.name, kind = kind, visibility = vis,
-          owner = ownerId, location = loc,
-          origin = SymbolOrigin.ProjectTasty(buildTarget, uri),
-          parents = Nil, typeSignature = None,
-        ))
+        addSymbol(
+          uri,
+          IndexedSymbol(
+            id = symId,
+            name = sym.name,
+            kind = kind,
+            visibility = vis,
+            owner = ownerId,
+            location = loc,
+            origin = SymbolOrigin.ProjectTasty(buildTarget, uri),
+            parents = Nil,
+            typeSignature = None,
+          ),
+        )
       }
     }
 
-    def addReferenceFromTree(tree: Tree, owner: Symbol): Unit = {
+    def addReferenceFromTree(tree: Tree, owner: Symbol): Unit =
       try {
         val sym = tree.symbol
         if sym.isNoSymbol then return
         val refId = mkSymbolId(sym)
-        val pos = tree.pos
+        val pos   = tree.pos
         if pos.start != pos.end then {
           posSourceUri(pos).foreach { uri =>
             val loc = Location(uri, pos.startLine, pos.startColumn, pos.endLine, pos.endColumn)
@@ -289,13 +332,16 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
           }
         }
       } catch { case e: Exception => () }
-    }
 
     def mkSymbolId(sym: Symbol): SymbolId =
-      SymbolId(try sym.fullName catch { case e: Exception =>
-        // logger.debug(s"mkSymbolId: fullName failed for ${sym.name}: ${e.getMessage}")
-        sym.name
-      })
+      SymbolId(
+        try sym.fullName
+        catch {
+          case e: Exception =>
+            // logger.debug(s"mkSymbolId: fullName failed for ${sym.name}: ${e.getMessage}")
+            sym.name
+        }
+      )
 
     def sourceFileUri(sym: Symbol): Option[SourceUri] =
       try {
@@ -311,9 +357,10 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
           // logger.debug(s"sourceFileUri: no position for symbol ${sym.name}")
           None
         }
-      } catch { case e: Exception =>
-        // logger.debug(s"sourceFileUri: exception for symbol ${sym.name}: ${e.getMessage}")
-        None
+      } catch {
+        case e: Exception =>
+          // logger.debug(s"sourceFileUri: exception for symbol ${sym.name}: ${e.getMessage}")
+          None
       }
 
     def posSourceUri(pos: Position): Option[SourceUri] =
@@ -324,9 +371,10 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
           // logger.debug(s"posSourceUri: null path")
           None
         }
-      } catch { case e: Exception =>
-        // logger.debug(s"posSourceUri: exception: ${e.getMessage}")
-        None
+      } catch {
+        case e: Exception =>
+          // logger.debug(s"posSourceUri: exception: ${e.getMessage}")
+          None
       }
 
     def symbolLocation(sym: Symbol, uri: SourceUri): Option[Location] =
@@ -339,9 +387,10 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
           // logger.debug(s"symbolLocation: no position for ${sym.name}")
           None
         }
-      } catch { case e: Exception =>
-        // logger.debug(s"symbolLocation: exception for ${sym.name}: ${e.getMessage}")
-        None
+      } catch {
+        case e: Exception =>
+          // logger.debug(s"symbolLocation: exception for ${sym.name}: ${e.getMessage}")
+          None
       }
 
     def classKind(sym: Symbol): SymbolKind = {
@@ -361,7 +410,7 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
     }
 
     def extractParents(cd: ClassDef): List[SymbolId] =
-      try {
+      try
         cd.parents.flatMap { parent =>
           try {
             val tpe = parent match {
@@ -371,31 +420,36 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
             val typeSym = tpe.typeSymbol
             if typeSym.fullName == "java.lang.Object" || typeSym.fullName == "scala.Any" then None
             else Some(mkSymbolId(typeSym))
-          } catch { case e: Exception =>
-            // logger.debug(s"extractParents: failed for parent of ${cd.symbol.name}: ${e.getMessage}")
-            None
+          } catch {
+            case e: Exception =>
+              // logger.debug(s"extractParents: failed for parent of ${cd.symbol.name}: ${e.getMessage}")
+              None
           }
         }
-      } catch { case e: Exception =>
-        // logger.debug(s"extractParents: failed for ${cd.symbol.name}: ${e.getMessage}")
-        Nil
+      catch {
+        case e: Exception =>
+          // logger.debug(s"extractParents: failed for ${cd.symbol.name}: ${e.getMessage}")
+          Nil
       }
 
     def shouldSkipSymbol(sym: Symbol): Boolean =
       try {
         val flags = sym.flags
-        val name = sym.name
+        val name  = sym.name
         flags.is(Flags.Synthetic) || flags.is(Flags.Artifact) ||
         name.contains("$anon") || name.contains("$evidence") || name.startsWith("$")
-      } catch { case e: Exception =>
-        // logger.debug(s"shouldSkipSymbol: exception for symbol: ${e.getMessage}")
-        true
+      } catch {
+        case e: Exception =>
+          // logger.debug(s"shouldSkipSymbol: exception for symbol: ${e.getMessage}")
+          true
       }
 
     def tryOpt[A](a: => A): Option[A] =
-      try Some(a) catch { case e: Exception =>
-        // logger.debug(s"tryOpt failed: ${e.getMessage}")
-        None
+      try Some(a)
+      catch {
+        case e: Exception =>
+          // logger.debug(s"tryOpt failed: ${e.getMessage}")
+          None
       }
   }
 
@@ -411,20 +465,21 @@ object TastyIndexer {
 
   private val suppressedThreads: ThreadLocal[Boolean] = ThreadLocal.withInitial(() => false)
 
-  /** Install a thread-aware PrintStream as System.out that suppresses output
-    * from threads running the TASTy inspector, while letting all other threads
-    * (especially the LSP JSON-RPC output) write normally.
-    * Call once at server startup.
+  /** Install a thread-aware PrintStream as System.out that suppresses output from threads running the TASTy inspector,
+    * while letting all other threads (especially the LSP JSON-RPC output) write normally. Call once at server startup.
     */
   def installStdoutGuard(): Unit = {
-    val real = System.out
-    val guarded = new PrintStream(new OutputStream {
-      override def write(b: Int): Unit =
-        if !suppressedThreads.get() then real.write(b)
-      override def write(b: Array[Byte], off: Int, len: Int): Unit =
-        if !suppressedThreads.get() then real.write(b, off, len)
-      override def flush(): Unit = real.flush()
-    }, true)
+    val real    = System.out
+    val guarded = new PrintStream(
+      new OutputStream {
+        override def write(b: Int): Unit =
+          if !suppressedThreads.get() then real.write(b)
+        override def write(b: Array[Byte], off: Int, len: Int): Unit =
+          if !suppressedThreads.get() then real.write(b, off, len)
+        override def flush(): Unit = real.flush()
+      },
+      true,
+    )
     System.setOut(guarded)
   }
 }

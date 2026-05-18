@@ -1,27 +1,30 @@
 package org.scala.abusers.sls.index
 
 import cats.effect.IO
-import weaver.*
-import org.objectweb.asm.{ClassWriter, Opcodes}
+import org.objectweb.asm.ClassWriter
+import org.objectweb.asm.Opcodes
 import org.scala.abusers.sls.AbsolutePath
+import weaver.*
+
 import java.io.FileOutputStream
-import java.util.zip.{ZipEntry, ZipOutputStream}
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 object BytecodeIndexerSpec extends SimpleIOSuite {
 
   private val indexer = BytecodeIndexer()
 
   private def createJar(entries: List[(String, Array[Byte])]): IO[AbsolutePath] = IO.blocking {
-    val tmp = os.temp.dir(prefix = "bytecode-indexer-test")
+    val tmp     = os.temp.dir(prefix = "bytecode-indexer-test")
     val jarPath = tmp / "test.jar"
-    val zos = new ZipOutputStream(new FileOutputStream(jarPath.toIO))
-    try {
+    val zos     = new ZipOutputStream(new FileOutputStream(jarPath.toIO))
+    try
       entries.foreach { case (name, bytes) =>
         zos.putNextEntry(new ZipEntry(name))
         zos.write(bytes)
         zos.closeEntry()
       }
-    } finally zos.close()
+    finally zos.close()
     AbsolutePath(jarPath.toNIO)
   }
 
@@ -56,17 +59,18 @@ object BytecodeIndexerSpec extends SimpleIOSuite {
       methods = List(("greet", "(Ljava/lang/String;)Ljava/lang/String;", Opcodes.ACC_PUBLIC)),
     )
     for {
-      jar <- createJar(List(cls))
+      jar  <- createJar(List(cls))
       syms <- indexer.indexJar(jar)
-      classSym = syms.find(s => s.name == "Greeter" && s.kind == SymbolKind.Class)
+      classSym  = syms.find(s => s.name == "Greeter" && s.kind == SymbolKind.Class)
       methodSym = syms.find(s => s.name == "greet" && s.kind == SymbolKind.Method)
     } yield expect(classSym.isDefined) and expect(methodSym.isDefined)
   }
 
   test("interface — Trait kind") {
-    val cls = javaClass("com/example/Runnable", access = Opcodes.ACC_PUBLIC | Opcodes.ACC_INTERFACE | Opcodes.ACC_ABSTRACT)
+    val cls =
+      javaClass("com/example/Runnable", access = Opcodes.ACC_PUBLIC | Opcodes.ACC_INTERFACE | Opcodes.ACC_ABSTRACT)
     for {
-      jar <- createJar(List(cls))
+      jar  <- createJar(List(cls))
       syms <- indexer.indexJar(jar)
       traitSym = syms.find(s => s.name == "Runnable" && s.kind == SymbolKind.Trait)
     } yield expect(traitSym.isDefined)
@@ -78,11 +82,11 @@ object BytecodeIndexerSpec extends SimpleIOSuite {
       access = Opcodes.ACC_PUBLIC | Opcodes.ACC_ENUM | Opcodes.ACC_FINAL,
       superName = "java/lang/Enum",
       fields = List(
-        ("RED", "Lcom/example/Color;", Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL | Opcodes.ACC_ENUM),
+        ("RED", "Lcom/example/Color;", Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL | Opcodes.ACC_ENUM)
       ),
     )
     for {
-      jar <- createJar(List(cls))
+      jar  <- createJar(List(cls))
       syms <- indexer.indexJar(jar)
       enumSym = syms.find(s => s.name == "Color" && s.kind == SymbolKind.Enum)
       caseSym = syms.find(s => s.name == "RED" && s.kind == SymbolKind.EnumCase)
@@ -99,9 +103,9 @@ object BytecodeIndexerSpec extends SimpleIOSuite {
       ),
     )
     for {
-      jar <- createJar(List(cls))
+      jar  <- createJar(List(cls))
       syms <- indexer.indexJar(jar)
-      pub = syms.find(_.name == "publicMethod")
+      pub  = syms.find(_.name == "publicMethod")
       priv = syms.find(_.name == "privateMethod")
       prot = syms.find(_.name == "protectedMethod")
     } yield expect(pub.exists(_.visibility == Visibility.Public)) and
@@ -120,7 +124,7 @@ object BytecodeIndexerSpec extends SimpleIOSuite {
       ),
     )
     for {
-      jar <- createJar(List(cls))
+      jar  <- createJar(List(cls))
       syms <- indexer.indexJar(jar)
       methodNames = syms.filter(_.kind == SymbolKind.Method).map(_.name).toSet
     } yield expect(methodNames.contains("real")) and
@@ -132,7 +136,7 @@ object BytecodeIndexerSpec extends SimpleIOSuite {
   test("Scala object companion detected via $ suffix") {
     val cls = javaClass("com/example/Foo$")
     for {
-      jar <- createJar(List(cls))
+      jar  <- createJar(List(cls))
       syms <- indexer.indexJar(jar)
       objSym = syms.find(s => s.name == "Foo" && s.kind == SymbolKind.Object)
     } yield expect(objSym.isDefined)
@@ -142,19 +146,20 @@ object BytecodeIndexerSpec extends SimpleIOSuite {
     val outer = javaClass("com/example/Outer")
     val inner = javaClass("com/example/Outer$Inner")
     for {
-      jar <- createJar(List(outer, inner))
+      jar  <- createJar(List(outer, inner))
       syms <- indexer.indexJar(jar)
       innerSym = syms.find(_.name == "Inner")
     } yield expect(innerSym.exists(_.owner.contains(SymbolId("com.example.Outer"))))
   }
 
   test("parent classes extracted") {
-    val base = javaClass("com/example/Base")
-    val child = javaClass("com/example/Child", superName = "com/example/Base", interfaces = Array("java/io/Serializable"))
+    val base  = javaClass("com/example/Base")
+    val child =
+      javaClass("com/example/Child", superName = "com/example/Base", interfaces = Array("java/io/Serializable"))
     for {
-      jar <- createJar(List(base, child))
+      jar  <- createJar(List(base, child))
       syms <- indexer.indexJar(jar)
-      childSym = syms.find(_.name == "Child")
+      childSym  = syms.find(_.name == "Child")
       parentIds = childSym.toList.flatMap(_.parents).map(_.value)
     } yield expect(parentIds.contains("com.example.Base")) and
       expect(parentIds.contains("java.io.Serializable"))
@@ -163,7 +168,7 @@ object BytecodeIndexerSpec extends SimpleIOSuite {
   test("all symbols have location = None and DependencyClassfile origin") {
     val cls = javaClass("com/example/Check")
     for {
-      jar <- createJar(List(cls))
+      jar  <- createJar(List(cls))
       syms <- indexer.indexJar(jar)
     } yield expect(syms.forall(_.location.isEmpty)) and
       expect(syms.forall(_.origin.isInstanceOf[SymbolOrigin.DependencyClassfile]))
@@ -171,18 +176,18 @@ object BytecodeIndexerSpec extends SimpleIOSuite {
 
   test("empty JAR — empty results") {
     for {
-      jar <- createJar(Nil)
+      jar  <- createJar(Nil)
       syms <- indexer.indexJar(jar)
     } yield expect(syms.isEmpty)
   }
 
   test("JAR with non-class resources — no crash") {
     val entries = List(
-      ("META-INF/MANIFEST.MF" -> "Manifest-Version: 1.0\n".getBytes),
-      ("readme.txt" -> "hello".getBytes),
+      "META-INF/MANIFEST.MF" -> "Manifest-Version: 1.0\n".getBytes,
+      "readme.txt"           -> "hello".getBytes,
     )
     for {
-      jar <- createJar(entries)
+      jar  <- createJar(entries)
       syms <- indexer.indexJar(jar)
     } yield expect(syms.isEmpty)
   }
@@ -196,10 +201,10 @@ object BytecodeIndexerSpec extends SimpleIOSuite {
       ),
     )
     for {
-      jar <- createJar(List(cls))
+      jar  <- createJar(List(cls))
       syms <- indexer.indexJar(jar)
       countSym = syms.find(s => s.name == "count" && s.kind == SymbolKind.Var)
-      nameSym = syms.find(s => s.name == "name" && s.kind == SymbolKind.Val)
+      nameSym  = syms.find(s => s.name == "name" && s.kind == SymbolKind.Val)
     } yield expect(countSym.isDefined) and expect(nameSym.isDefined)
   }
 }

@@ -39,14 +39,14 @@ object BloomFilterSpec extends SimpleIOSuite {
   }
 
   test("false positive rate within 2x of configured rate for 1000 elements") {
-    val n = 1000
+    val n      = 1000
     val fpRate = 0.01
-    val bf = (0 until n).foldLeft(BloomFilter(n, fpRate)) { (f, i) =>
+    val bf     = (0 until n).foldLeft(BloomFilter(n, fpRate)) { (f, i) =>
       f.add(s"element-$i")
     }
 
     // Test with 10000 elements that were NOT added
-    val testCount = 10000
+    val testCount      = 10000
     val falsePositives = (0 until testCount).count { i =>
       bf.mightContain(s"other-$i")
     }
@@ -56,7 +56,7 @@ object BloomFilterSpec extends SimpleIOSuite {
   }
 
   test("zero false negatives for 1000 elements") {
-    val n = 1000
+    val n  = 1000
     val bf = (0 until n).foldLeft(BloomFilter(n, 0.01)) { (f, i) =>
       f.add(s"elem-$i")
     }
@@ -65,8 +65,8 @@ object BloomFilterSpec extends SimpleIOSuite {
   }
 
   test("union of two filters contains elements from both") {
-    val bf1 = BloomFilter(100, 0.01).add("alpha").add("beta")
-    val bf2 = BloomFilter(100, 0.01).add("gamma").add("delta")
+    val bf1    = BloomFilter(100, 0.01).add("alpha").add("beta")
+    val bf2    = BloomFilter(100, 0.01).add("gamma").add("delta")
     val merged = bf1.union(bf2)
     IO(
       expect(merged.mightContain("alpha")) &&

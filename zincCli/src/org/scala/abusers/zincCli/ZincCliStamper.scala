@@ -1,12 +1,13 @@
 package org.scala.abusers.zincCli
 
 import sbt.internal.inc.*
-import xsbti.VirtualFile
-import java.nio.file.Path
-import xsbti.VirtualFileRef
 import xsbti.compile.analysis.ReadStamps
+import xsbti.VirtualFile
+import xsbti.VirtualFileRef
+
 import java.{util => ju}
 import java.io.File
+import java.nio.file.Path
 
 class ZincCliStamper extends ReadStamps {
   private val emptyStamp = Stamp.getStamp(Map.empty, new File(""))
@@ -16,7 +17,7 @@ class ZincCliStamper extends ReadStamps {
     (s.startsWith("//") && s.endsWith(".sig")) || s.startsWith("//modules/") || s.startsWith("/modules/")
 
   override def getAllProductStamps(): ju.Map[VirtualFileRef, xsbti.compile.analysis.Stamp] = ju.Map.of()
-  override def getAllSourceStamps(): ju.Map[VirtualFileRef, xsbti.compile.analysis.Stamp] = ju.Map.of()
+  override def getAllSourceStamps(): ju.Map[VirtualFileRef, xsbti.compile.analysis.Stamp]  = ju.Map.of()
   override def getAllLibraryStamps(): ju.Map[VirtualFileRef, xsbti.compile.analysis.Stamp] = ju.Map.of()
 
   override def product(compilationProduct: VirtualFileRef): xsbti.compile.analysis.Stamp = emptyStamp
@@ -28,6 +29,6 @@ class ZincCliStamper extends ReadStamps {
   override def source(internalSource: VirtualFile): xsbti.compile.analysis.Stamp =
     internalSource match {
       case sourceFile: VirtualSourceFile => FarmHash.fromLong(sourceFile.contentHash())
-      case virtualFile: VirtualFile       => FarmHash.ofFile(virtualFile)
+      case virtualFile: VirtualFile      => FarmHash.ofFile(virtualFile)
     }
 }

@@ -34,8 +34,8 @@ class DiagnosticManager(publishedDiagnostics: MapRef[IO, SourceUri, Option[Set[l
     } yield ()
 
   def onBuildPublishDiagnostics(client: SlsLanguageClient[IO], input: BspPublishDiagnosticsParams): IO[Unit] = {
-    val uri      = input.textDocument.uri.toSourceUri
-    val lspDiags = input.diagnostics.toSet.map(convertDiagnostic)
+    val uri                                 = input.textDocument.uri.toSourceUri
+    val lspDiags                            = input.diagnostics.toSet.map(convertDiagnostic)
     def request(diags: Set[lsp.Diagnostic]) =
       lsp.PublishDiagnosticsParams(uri.toLspUri, diags.toList, None)
 

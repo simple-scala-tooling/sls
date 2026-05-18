@@ -1,15 +1,15 @@
 package org.scala.abusers.pc
 
 import org.eclipse.lsp4j.jsonrpc.json.MessageJsonHandler
+import org.scala.abusers.sls.sourceUri
 import org.scala.abusers.sls.DocumentState
+import org.scala.abusers.sls.SourceUri
 import smithy4s.json.Json
 import smithy4s.schema.Schema
 import smithy4s.Blob
 
 import java.net.URI
 import java.util.Collections
-import org.scala.abusers.sls.SourceUri
-import org.scala.abusers.sls.sourceUri
 import scala.meta.pc.CancelToken
 import scala.meta.pc.OffsetParams
 

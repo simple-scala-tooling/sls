@@ -7,9 +7,9 @@ class BloomFilter private (
 ) {
 
   def add(element: String): BloomFilter = {
-    val newBits = bits.clone()
+    val newBits  = bits.clone()
     val (h1, h2) = hashPair(element)
-    var i = 0
+    var i        = 0
     while (i < numHashFunctions) {
       val idx = bitIndex(h1, h2, i)
       newBits(idx >> 6) |= 1L << (idx & 63)
@@ -20,7 +20,7 @@ class BloomFilter private (
 
   def mightContain(element: String): Boolean = {
     val (h1, h2) = hashPair(element)
-    var i = 0
+    var i        = 0
     while (i < numHashFunctions) {
       val idx = bitIndex(h1, h2, i)
       if ((bits(idx >> 6) & (1L << (idx & 63))) == 0) return false
@@ -32,7 +32,7 @@ class BloomFilter private (
   def union(other: BloomFilter): BloomFilter = {
     require(numBits == other.numBits && numHashFunctions == other.numHashFunctions)
     val newBits = new Array[Long](bits.length)
-    var i = 0
+    var i       = 0
     while (i < bits.length) {
       newBits(i) = bits(i) | other.bits(i)
       i += 1
@@ -55,8 +55,8 @@ class BloomFilter private (
 object BloomFilter {
 
   def apply(expectedElements: Int, falsePositiveRate: Double): BloomFilter = {
-    val m = optimalNumBits(expectedElements, falsePositiveRate)
-    val k = optimalNumHash(m, expectedElements)
+    val m         = optimalNumBits(expectedElements, falsePositiveRate)
+    val k         = optimalNumHash(m, expectedElements)
     val arraySize = ((m - 1) >> 6) + 1
     new BloomFilter(new Array[Long](arraySize), k, m)
   }

@@ -1,9 +1,8 @@
 package org.scala.abusers.zincCli
 
 import xsbti.Position
-import java.{util => ju}
-import xsbti.Reporter
 import xsbti.Problem
+import xsbti.Reporter
 
 class ZincCliReporter extends Reporter {
 

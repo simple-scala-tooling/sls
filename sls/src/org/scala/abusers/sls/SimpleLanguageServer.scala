@@ -1,16 +1,16 @@
 package org.scala.abusers.sls
 
 import cats.effect.*
+import cats.effect.std.Console
 import cats.syntax.all.*
 import jsonrpclib.fs2.*
 import jsonrpclib.smithy4sinterop.ClientStub
+import org.scala.abusers.csp.CspServer
 import org.scala.abusers.pc.IOCancelTokens
 import org.scala.abusers.pc.PresentationCompilerProvider
 import org.scala.abusers.profiling.runtime.ProfilingIOApp
 import org.typelevel.otel4s.metrics.Meter
 import org.typelevel.otel4s.trace.Tracer
-import cats.effect.std.Console
-import org.scala.abusers.csp.CspServer
 
 case class BuildServer(
     generic: bsp.BuildServer[IO],
@@ -37,13 +37,13 @@ object SimpleScalaServer extends ProfilingIOApp {
 
   override def program(using meter: Meter[IO], tracer: Tracer[IO]) =
     for {
-      _ <- Resource.eval(IO(index.TastyIndexer.installStdoutGuard()))
+      _                    <- Resource.eval(IO(index.TastyIndexer.installStdoutGuard()))
       fs2Channel           <- FS2Channel.resource[IO](cancelTemplate = LSPCancelRequest.cancelTemplate.some)
       client               <- ClientStub(SlsLanguageClient, fs2Channel).liftTo[IO].toResource
       serverImpl           <- server(client)
       serverEndpoints      <- ServerEndpoints(serverImpl).liftTo[IO].toResource
       channelWithEndpoints <- fs2Channel.withEndpoints(serverEndpoints)
-      _ <- fs2.Stream // Refactor to be single threaded
+      _                    <- fs2.Stream // Refactor to be single threaded
         .never[IO]
         .concurrently(
           // STDIN
@@ -72,19 +72,21 @@ object SimpleScalaServer extends ProfilingIOApp {
       textDocumentSync  <- TextDocumentSyncManager.instance.toResource
       bspClientDeferred <- Deferred[IO, BuildServer].toResource
       cspClientDeferred <- Deferred[IO, CspServer[IO]].toResource
-      bspStateManager   <- BspStateManager.instance(
-                             lspClient,
-                             BuildServer.suspend(bspClientDeferred.get),
-                             SmithySuspend.sus(cspClientDeferred.get)
-                           ).toResource
+      bspStateManager   <- BspStateManager
+        .instance(
+          lspClient,
+          BuildServer.suspend(bspClientDeferred.get),
+          SmithySuspend.sus(cspClientDeferred.get),
+        )
+        .toResource
       cancelTokens      <- IOCancelTokens.instance
       diagnosticManager <- DiagnosticManager.instance.toResource
       computationQueue  <- ComputationQueue.instance.toResource
       projectIndex      <- index.ProjectIndex.empty.toResource
       dependencyIndex   <- index.DependencyIndex.empty.toResource
-      bytecodeIndexer   = index.BytecodeIndexer()
-      symbolIndex       = index.SymbolIndex(projectIndex, dependencyIndex)
-      indexManager      = index.IndexManager(projectIndex, dependencyIndex, bytecodeIndexer)
+      bytecodeIndexer = index.BytecodeIndexer()
+      symbolIndex     = index.SymbolIndex(projectIndex, dependencyIndex)
+      indexManager    = index.IndexManager(projectIndex, dependencyIndex, bytecodeIndexer)
     } yield ServerImpl(
       pcProvider,
       cancelTokens,

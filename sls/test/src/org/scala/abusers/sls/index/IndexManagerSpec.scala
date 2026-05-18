@@ -1,27 +1,31 @@
 package org.scala.abusers.sls.index
 
 import cats.effect.IO
-import org.scala.abusers.sls.{AbsolutePath, SourceUri}
+import org.objectweb.asm.ClassWriter
+import org.objectweb.asm.Opcodes
+import org.scala.abusers.sls.AbsolutePath
+import org.scala.abusers.sls.SourceUri
 import weaver.*
-import org.objectweb.asm.{ClassWriter, Opcodes}
+
 import java.io.FileOutputStream
-import java.util.zip.{ZipEntry, ZipOutputStream}
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 object IndexManagerSpec extends SimpleIOSuite {
 
   private val bytecodeIndexer = BytecodeIndexer()
 
   private def createJar(entries: List[(String, Array[Byte])]): IO[AbsolutePath] = IO.blocking {
-    val tmp = os.temp.dir(prefix = "index-manager-test")
+    val tmp     = os.temp.dir(prefix = "index-manager-test")
     val jarPath = tmp / "test.jar"
-    val zos = new ZipOutputStream(new FileOutputStream(jarPath.toIO))
-    try {
+    val zos     = new ZipOutputStream(new FileOutputStream(jarPath.toIO))
+    try
       entries.foreach { case (name, bytes) =>
         zos.putNextEntry(new ZipEntry(name))
         zos.write(bytes)
         zos.closeEntry()
       }
-    } finally zos.close()
+    finally zos.close()
     AbsolutePath(jarPath.toNIO)
   }
 
@@ -50,10 +54,10 @@ object IndexManagerSpec extends SimpleIOSuite {
       pi <- ProjectIndex.empty
       di <- DependencyIndex.empty
       mgr = IndexManager(pi, di, bytecodeIndexer)
-      _ <- pi.updateFiles(Map(uri -> (List(sym), Nil)))
+      _      <- pi.updateFiles(Map(uri -> (List(sym), Nil)))
       before <- pi.getSymbol(SymbolId("test.Foo"))
-      _ <- mgr.onFilesDeleted(Set(uri))
-      after <- pi.getSymbol(SymbolId("test.Foo"))
+      _      <- mgr.onFilesDeleted(Set(uri))
+      after  <- pi.getSymbol(SymbolId("test.Foo"))
     } yield expect(before.isDefined) and expect(after.isEmpty)
   }
 
@@ -70,11 +74,11 @@ object IndexManagerSpec extends SimpleIOSuite {
     val cls = javaClass("com/example/Widget")
     for {
       jar <- createJar(List(cls))
-      pi <- ProjectIndex.empty
-      di <- DependencyIndex.empty
+      pi  <- ProjectIndex.empty
+      di  <- DependencyIndex.empty
       mgr = IndexManager(pi, di, bytecodeIndexer)
-      syms <- bytecodeIndexer.indexJar(jar)
-      _ <- di.addJar(jar.toNioPath.toString, syms)
+      syms  <- bytecodeIndexer.indexJar(jar)
+      _     <- di.addJar(jar.toNioPath.toString, syms)
       found <- di.searchSymbols("widget")
     } yield expect(found.exists(_.name == "Widget"))
   }
@@ -83,84 +87,96 @@ object IndexManagerSpec extends SimpleIOSuite {
     for {
       pi <- ProjectIndex.empty
       di <- DependencyIndex.empty
-      mgr = IndexManager(pi, di, bytecodeIndexer)
-      tmp = os.temp.dir(prefix = "corrupt-jar-test")
+      mgr        = IndexManager(pi, di, bytecodeIndexer)
+      tmp        = os.temp.dir(prefix = "corrupt-jar-test")
       corruptJar = tmp / "corrupt.jar"
       _ <- IO.blocking(os.write(corruptJar, "not a jar"))
       corruptJarAbs = AbsolutePath(corruptJar.toNIO)
       syms <- bytecodeIndexer.indexJar(corruptJarAbs).handleError(_ => Nil)
-      _ <- di.addJar(corruptJarAbs.toNioPath.toString, syms)
+      _    <- di.addJar(corruptJarAbs.toNioPath.toString, syms)
     } yield success
   }
 
   test("searchSymbols with various query styles finds symbols") {
     val uri = SourceUri("file:///test/HashMap.scala")
     val sym = IndexedSymbol(
-      id = SymbolId("scala.collection.HashMap"), name = "HashMap", kind = SymbolKind.Class,
-      visibility = Visibility.Public, owner = None,
+      id = SymbolId("scala.collection.HashMap"),
+      name = "HashMap",
+      kind = SymbolKind.Class,
+      visibility = Visibility.Public,
+      owner = None,
       location = Some(Location(uri, 0, 0, 5, 1)),
       origin = SymbolOrigin.ProjectTasty("test", uri),
-      parents = Nil, typeSignature = None,
+      parents = Nil,
+      typeSignature = None,
     )
 
     for {
-      pi  <- ProjectIndex.empty
-      di  <- DependencyIndex.empty
+      pi <- ProjectIndex.empty
+      di <- DependencyIndex.empty
       idx = SymbolIndex(pi, di)
-      _   <- pi.updateFiles(Map(uri -> (List(sym), Nil)))
-      byLower    <- idx.searchSymbols("hashmap")  // lowercase prefix
-      byCamel    <- idx.searchSymbols("HM")        // CamelCase abbreviation: H=Hash, M=Map
-      byPrefix   <- idx.searchSymbols("hash")      // lowercase prefix
-      byPascal   <- idx.searchSymbols("HashMap")   // PascalCase → name prefix search
+      _        <- pi.updateFiles(Map(uri -> (List(sym), Nil)))
+      byLower  <- idx.searchSymbols("hashmap") // lowercase prefix
+      byCamel  <- idx.searchSymbols("HM")      // CamelCase abbreviation: H=Hash, M=Map
+      byPrefix <- idx.searchSymbols("hash")    // lowercase prefix
+      byPascal <- idx.searchSymbols("HashMap") // PascalCase → name prefix search
     } yield expect(byLower.exists(_.name == "HashMap")) and
-            expect(byCamel.exists(_.name == "HashMap")) and
-            expect(byPrefix.exists(_.name == "HashMap")) and
-            expect(byPascal.exists(_.name == "HashMap"))
+      expect(byCamel.exists(_.name == "HashMap")) and
+      expect(byPrefix.exists(_.name == "HashMap")) and
+      expect(byPascal.exists(_.name == "HashMap"))
   }
 
   test("SymbolIndex.searchSymbols finds project and dependency symbols") {
-    val uri = SourceUri("file:///test/Foo.scala")
+    val uri     = SourceUri("file:///test/Foo.scala")
     val projSym = IndexedSymbol(
-      id = SymbolId("test.Foo"), name = "Foo", kind = SymbolKind.Class,
-      visibility = Visibility.Public, owner = None,
+      id = SymbolId("test.Foo"),
+      name = "Foo",
+      kind = SymbolKind.Class,
+      visibility = Visibility.Public,
+      owner = None,
       location = Some(Location(uri, 0, 0, 5, 1)),
       origin = SymbolOrigin.ProjectTasty("test", uri),
-      parents = Nil, typeSignature = None,
+      parents = Nil,
+      typeSignature = None,
     )
     val depCls = javaClass("com/example/FooBar")
 
     for {
-      pi  <- ProjectIndex.empty
-      di  <- DependencyIndex.empty
+      pi <- ProjectIndex.empty
+      di <- DependencyIndex.empty
       idx = SymbolIndex(pi, di)
-      _   <- pi.updateFiles(Map(uri -> (List(projSym), Nil)))
-      jar <- createJar(List(depCls))
-      syms <- bytecodeIndexer.indexJar(jar)
-      _   <- di.addJar(jar.toString, syms)
-      results <- idx.searchSymbols("foo")
+      _         <- pi.updateFiles(Map(uri -> (List(projSym), Nil)))
+      jar       <- createJar(List(depCls))
+      syms      <- bytecodeIndexer.indexJar(jar)
+      _         <- di.addJar(jar.toString, syms)
+      results   <- idx.searchSymbols("foo")
       projCount <- pi.symbolCount
       depCount  <- di.symbolCount
     } yield expect(results.exists(_.name == "Foo")) and
-            expect(results.exists(_.name == "FooBar")) and
-            expect(projCount == 1) and
-            expect(depCount >= 1)
+      expect(results.exists(_.name == "FooBar")) and
+      expect(projCount == 1) and
+      expect(depCount >= 1)
   }
 
   test("CamelCase query 'IO' does not match camelCase 'indexOf'") {
     val uri = SourceUri("file:///test/Stuff.scala")
     val sym = IndexedSymbol(
-      id = SymbolId("test.indexOf"), name = "indexOf", kind = SymbolKind.Method,
-      visibility = Visibility.Public, owner = None,
+      id = SymbolId("test.indexOf"),
+      name = "indexOf",
+      kind = SymbolKind.Method,
+      visibility = Visibility.Public,
+      owner = None,
       location = Some(Location(uri, 0, 0, 5, 1)),
       origin = SymbolOrigin.ProjectTasty("test", uri),
-      parents = Nil, typeSignature = None,
+      parents = Nil,
+      typeSignature = None,
     )
 
     for {
-      pi  <- ProjectIndex.empty
-      di  <- DependencyIndex.empty
+      pi <- ProjectIndex.empty
+      di <- DependencyIndex.empty
       idx = SymbolIndex(pi, di)
-      _   <- pi.updateFiles(Map(uri -> (List(sym), Nil)))
+      _       <- pi.updateFiles(Map(uri -> (List(sym), Nil)))
       results <- idx.searchSymbols("IO")
     } yield expect(!results.exists(_.name == "indexOf"))
   }
@@ -168,18 +184,22 @@ object IndexManagerSpec extends SimpleIOSuite {
   test("mixed case 'iO' matches camelCase 'iOnly' via name prefix") {
     val uri = SourceUri("file:///test/Stuff.scala")
     val sym = IndexedSymbol(
-      id = SymbolId("test.iOnly"), name = "iOnly", kind = SymbolKind.Method,
-      visibility = Visibility.Public, owner = None,
+      id = SymbolId("test.iOnly"),
+      name = "iOnly",
+      kind = SymbolKind.Method,
+      visibility = Visibility.Public,
+      owner = None,
       location = Some(Location(uri, 0, 0, 5, 1)),
       origin = SymbolOrigin.ProjectTasty("test", uri),
-      parents = Nil, typeSignature = None,
+      parents = Nil,
+      typeSignature = None,
     )
 
     for {
-      pi  <- ProjectIndex.empty
-      di  <- DependencyIndex.empty
+      pi <- ProjectIndex.empty
+      di <- DependencyIndex.empty
       idx = SymbolIndex(pi, di)
-      _   <- pi.updateFiles(Map(uri -> (List(sym), Nil)))
+      _       <- pi.updateFiles(Map(uri -> (List(sym), Nil)))
       results <- idx.searchSymbols("iO")
     } yield expect(results.exists(_.name == "iOnly"))
   }
@@ -187,18 +207,22 @@ object IndexManagerSpec extends SimpleIOSuite {
   test("lowercase query 'minutes' matches all-caps 'MINUTES'") {
     val uri = SourceUri("file:///test/Constants.scala")
     val sym = IndexedSymbol(
-      id = SymbolId("java.util.concurrent.TimeUnit.MINUTES"), name = "MINUTES", kind = SymbolKind.Field,
-      visibility = Visibility.Public, owner = None,
+      id = SymbolId("java.util.concurrent.TimeUnit.MINUTES"),
+      name = "MINUTES",
+      kind = SymbolKind.Field,
+      visibility = Visibility.Public,
+      owner = None,
       location = Some(Location(uri, 0, 0, 5, 1)),
       origin = SymbolOrigin.ProjectTasty("test", uri),
-      parents = Nil, typeSignature = None,
+      parents = Nil,
+      typeSignature = None,
     )
 
     for {
-      pi  <- ProjectIndex.empty
-      di  <- DependencyIndex.empty
+      pi <- ProjectIndex.empty
+      di <- DependencyIndex.empty
       idx = SymbolIndex(pi, di)
-      _   <- pi.updateFiles(Map(uri -> (List(sym), Nil)))
+      _       <- pi.updateFiles(Map(uri -> (List(sym), Nil)))
       results <- idx.searchSymbols("minutes")
     } yield expect(results.exists(_.name == "MINUTES"))
   }
@@ -207,28 +231,38 @@ object IndexManagerSpec extends SimpleIOSuite {
     val uri1 = SourceUri("file:///test/A.scala")
     val uri2 = SourceUri("file:///test/B.scala")
     val sym1 = IndexedSymbol(
-      id = SymbolId("test.A"), name = "A", kind = SymbolKind.Class,
-      visibility = Visibility.Public, owner = None,
+      id = SymbolId("test.A"),
+      name = "A",
+      kind = SymbolKind.Class,
+      visibility = Visibility.Public,
+      owner = None,
       location = Some(Location(uri1, 0, 0, 5, 1)),
       origin = SymbolOrigin.ProjectTasty("test", uri1),
-      parents = Nil, typeSignature = None,
+      parents = Nil,
+      typeSignature = None,
     )
     val sym2 = IndexedSymbol(
-      id = SymbolId("test.B"), name = "B", kind = SymbolKind.Class,
-      visibility = Visibility.Public, owner = None,
+      id = SymbolId("test.B"),
+      name = "B",
+      kind = SymbolKind.Class,
+      visibility = Visibility.Public,
+      owner = None,
       location = Some(Location(uri2, 0, 0, 5, 1)),
       origin = SymbolOrigin.ProjectTasty("test", uri2),
-      parents = Nil, typeSignature = None,
+      parents = Nil,
+      typeSignature = None,
     )
 
     for {
       pi <- ProjectIndex.empty
       di <- DependencyIndex.empty
       mgr = IndexManager(pi, di, bytecodeIndexer)
-      _ <- pi.updateFiles(Map(
-        uri1 -> (List(sym1), Nil),
-        uri2 -> (List(sym2), Nil),
-      ))
+      _ <- pi.updateFiles(
+        Map(
+          uri1 -> (List(sym1), Nil),
+          uri2 -> (List(sym2), Nil),
+        )
+      )
       _ <- mgr.onFilesDeleted(Set(uri1, uri2))
       a <- pi.getSymbol(SymbolId("test.A"))
       b <- pi.getSymbol(SymbolId("test.B"))

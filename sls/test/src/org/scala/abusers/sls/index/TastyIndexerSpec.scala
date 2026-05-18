@@ -1,7 +1,8 @@
 package org.scala.abusers.sls.index
 
 import cats.effect.IO
-import org.scala.abusers.sls.{AbsolutePath, SourceUri}
+import org.scala.abusers.sls.AbsolutePath
+import org.scala.abusers.sls.SourceUri
 import weaver.*
 
 object TastyIndexerSpec extends SimpleIOSuite {
@@ -60,28 +61,30 @@ object TastyIndexerSpec extends SimpleIOSuite {
         |""".stripMargin,
   )
 
-  private def compileAndIndex: IO[(os.Path, Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])])] = IO.blocking {
-    val tmpDir = os.temp.dir(prefix = "tasty-indexer-test")
-    val srcDir = tmpDir / "src"
-    val outDir = tmpDir / "out"
-    os.makeDir.all(srcDir)
-    os.makeDir.all(outDir)
+  private def compileAndIndex: IO[(os.Path, Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])])] = IO
+    .blocking {
+      val tmpDir = os.temp.dir(prefix = "tasty-indexer-test")
+      val srcDir = tmpDir / "src"
+      val outDir = tmpDir / "out"
+      os.makeDir.all(srcDir)
+      os.makeDir.all(outDir)
 
-    fixtures.foreach { case (name, content) =>
-      os.write(srcDir / name, content)
+      fixtures.foreach { case (name, content) =>
+        os.write(srcDir / name, content)
+      }
+
+      val sourceFiles = os.list(srcDir).filter(_.ext == "scala").map(_.toString).toArray
+      val args        = Array("-d", outDir.toString, "-usejavacp") ++ sourceFiles
+
+      dotty.tools.dotc.Main.process(args)
+
+      (tmpDir, ())
     }
-
-    val sourceFiles = os.list(srcDir).filter(_.ext == "scala").map(_.toString).toArray
-    val args = Array("-d", outDir.toString, "-usejavacp") ++ sourceFiles
-
-    dotty.tools.dotc.Main.process(args)
-
-    (tmpDir, ())
-  }.flatMap { case (tmpDir, _) =>
-    val outDir = AbsolutePath((tmpDir / "out").toNIO)
-    val indexer = TastyIndexer("test-target")
-    indexer.indexDirectory(outDir, Nil).map(result => (tmpDir, result))
-  }
+    .flatMap { case (tmpDir, _) =>
+      val outDir  = AbsolutePath((tmpDir / "out").toNIO)
+      val indexer = TastyIndexer("test-target")
+      indexer.indexDirectory(outDir, Nil).map(result => (tmpDir, result))
+    }
 
   private lazy val indexed: IO[(os.Path, Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])])] =
     compileAndIndex.memoize.flatten
@@ -98,7 +101,7 @@ object TastyIndexerSpec extends SimpleIOSuite {
   test("simple class with method — both symbols extracted") {
     for {
       syms <- allSymbols
-      cls = syms.find(s => s.name == "SimpleClass" && s.kind == SymbolKind.Class)
+      cls    = syms.find(s => s.name == "SimpleClass" && s.kind == SymbolKind.Class)
       method = syms.find(s => s.name == "greet" && s.kind == SymbolKind.Method)
     } yield expect(cls.isDefined) and expect(method.isDefined)
   }
@@ -126,7 +129,7 @@ object TastyIndexerSpec extends SimpleIOSuite {
     for {
       syms <- allSymbols
       circle = syms.find(s => s.name == "Circle" && s.kind == SymbolKind.Class)
-      rect = syms.find(s => s.name == "Rectangle" && s.kind == SymbolKind.Class)
+      rect   = syms.find(s => s.name == "Rectangle" && s.kind == SymbolKind.Class)
     } yield expect(circle.exists(_.parents.exists(_.value.contains("Shape")))) and
       expect(rect.exists(_.parents.exists(_.value.contains("Shape"))))
   }
@@ -156,7 +159,7 @@ object TastyIndexerSpec extends SimpleIOSuite {
   test("synthetic symbols not indexed") {
     for {
       syms <- allSymbols
-      anons = syms.filter(_.name.contains("$anon"))
+      anons    = syms.filter(_.name.contains("$anon"))
       evidence = syms.filter(_.name.contains("$evidence"))
     } yield expect(anons.isEmpty) and expect(evidence.isEmpty)
   }
@@ -166,7 +169,7 @@ object TastyIndexerSpec extends SimpleIOSuite {
       syms <- allSymbols
       secret = syms.find(_.name == "secret")
       helper = syms.find(_.name == "helper")
-      pub = syms.find(_.name == "publicMethod")
+      pub    = syms.find(_.name == "publicMethod")
     } yield expect(secret.exists(_.visibility == Visibility.Private)) and
       expect(helper.exists(_.visibility == Visibility.Protected)) and
       expect(pub.exists(_.visibility == Visibility.Public))

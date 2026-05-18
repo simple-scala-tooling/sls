@@ -1,6 +1,7 @@
 package org.scala.abusers.sls.index
 
-import cats.effect.{IO, Ref}
+import cats.effect.IO
+import cats.effect.Ref
 import org.scala.abusers.sls.SourceUri
 
 class ProjectIndex private (state: Ref[IO, ProjectIndex.State]) {
@@ -49,7 +50,9 @@ class ProjectIndex private (state: Ref[IO, ProjectIndex.State]) {
   def updateFiles(files: Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])]): IO[Unit] =
     state.update { s =>
       val totalRefs = files.values.map(_._2.size).sum
-      logger.info(s"updateFiles: ${files.size} files, ${files.values.map(_._1.size).sum} symbols, $totalRefs refs. Before: ${s.references.size} ref keys, ${s.symbols.size} symbols")
+      logger.info(
+        s"updateFiles: ${files.size} files, ${files.values.map(_._1.size).sum} symbols, $totalRefs refs. Before: ${s.references.size} ref keys, ${s.symbols.size} symbols"
+      )
       val result = files.foldLeft(s) { case (state, (uri, (symbols, refs))) =>
         val cleaned = removeFileFromState(state, uri)
         addFileToState(cleaned, uri, symbols, refs)
@@ -62,12 +65,14 @@ class ProjectIndex private (state: Ref[IO, ProjectIndex.State]) {
 
   def removeFiles(uris: Set[SourceUri]): IO[Unit] =
     state.update { s =>
-      logger.info(s"removeFiles called with ${uris.size} URIs, current refs=${s.references.size} keys, symbols=${s.symbols.size}")
+      logger.info(
+        s"removeFiles called with ${uris.size} URIs, current refs=${s.references.size} keys, symbols=${s.symbols.size}"
+      )
       uris.foldLeft(s)(removeFileFromState)
     }
 
-  def symbolCount: IO[Int] = state.get.map(_.symbols.size)
-  def fileCount: IO[Int] = state.get.map(_.byFile.size)
+  def symbolCount: IO[Int]                   = state.get.map(_.symbols.size)
+  def fileCount: IO[Int]                     = state.get.map(_.byFile.size)
   def debugReferenceKeys: IO[List[SymbolId]] = state.get.map(_.references.keys.toList)
 }
 
@@ -103,10 +108,10 @@ object ProjectIndex {
     val oldIds = s.byFile.getOrElse(uri, Set.empty)
     if oldIds.isEmpty && !s.refsByFile.contains(uri) then return s
 
-    var symbols = s.symbols
-    var nameTrie = s.nameTrie
+    var symbols       = s.symbols
+    var nameTrie      = s.nameTrie
     var camelCaseTrie = s.camelCaseTrie
-    var subtypesMap = s.subtypes
+    var subtypesMap   = s.subtypes
 
     oldIds.foreach { id =>
       s.symbols.get(id).foreach { sym =>
@@ -153,17 +158,17 @@ object ProjectIndex {
       newSymbols: List[IndexedSymbol],
       newRefs: List[SymbolReference],
   ): State = {
-    var symbols = s.symbols
-    var nameTrie = s.nameTrie
+    var symbols       = s.symbols
+    var nameTrie      = s.nameTrie
     var camelCaseTrie = s.camelCaseTrie
-    var subtypesMap = s.subtypes
-    val ids = Set.newBuilder[SymbolId]
+    var subtypesMap   = s.subtypes
+    val ids           = Set.newBuilder[SymbolId]
 
     newSymbols.foreach { sym =>
       symbols = symbols + (sym.id -> sym)
       ids += sym.id
 
-      val lower = sym.name.toLowerCase
+      val lower   = sym.name.toLowerCase
       val nameSet = nameTrie.get(lower).getOrElse(Set.empty)
       nameTrie = nameTrie.insert(lower, nameSet + sym.id)
 
@@ -183,7 +188,9 @@ object ProjectIndex {
 
     var refsMap = s.references
     newRefs.foreach { ref =>
-      logger.info(s"  addRef: ${ref.symbol.value} -> ${ref.location.uri}:${ref.location.startLine}:${ref.location.startCol} (${ref.referenceKind})")
+      logger.info(
+        s"  addRef: ${ref.symbol.value} -> ${ref.location.uri}:${ref.location.startLine}:${ref.location.startCol} (${ref.referenceKind})"
+      )
       refsMap = refsMap.updatedWith(ref.symbol) {
         case Some(list) => Some(ref :: list)
         case None       => Some(List(ref))

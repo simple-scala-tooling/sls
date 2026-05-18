@@ -2,6 +2,7 @@ package org.scala.abusers.sls.index
 
 import cats.effect.IO
 import org.scala.abusers.sls.SourceUri
+
 import scala.concurrent.duration.*
 
 class SymbolIndex(
@@ -18,14 +19,14 @@ class SymbolIndex(
   def getSymbolsByName(name: String): IO[Set[IndexedSymbol]] =
     for {
       proj <- project.getSymbolsByName(name)
-      dep <- dependency.getSymbolsByName(name)
+      dep  <- dependency.getSymbolsByName(name)
       projIds = proj.map(_.id)
     } yield proj ++ dep.filterNot(s => projIds.contains(s.id))
 
   def searchSymbols(query: String): IO[List[IndexedSymbol]] =
     (for {
       proj <- project.searchSymbols(query)
-      dep <- dependency.searchSymbols(query)
+      dep  <- dependency.searchSymbols(query)
       projIds = proj.map(_.id).toSet
     } yield proj ++ dep.filterNot(s => projIds.contains(s.id)))
       .timeoutTo(5.seconds, IO.pure(Nil))
@@ -36,7 +37,7 @@ class SymbolIndex(
   def getSubtypes(id: SymbolId): IO[Set[SymbolId]] =
     for {
       proj <- project.getSubtypes(id)
-      dep <- dependency.getSubtypes(id)
+      dep  <- dependency.getSubtypes(id)
     } yield proj ++ dep
 
   def getSupertypes(id: SymbolId): IO[List[SymbolId]] =
@@ -65,10 +66,9 @@ class SymbolIndex(
   ): IO[Set[SymbolId]] =
     if frontier.isEmpty || remaining <= 0 then IO.pure(visited)
     else
-      frontier.toList.traverse(getSubtypes).map(_.foldLeft(Set.empty[SymbolId])(_ ++ _)).flatMap {
-        next =>
-          val newIds = next -- visited
-          getTransitiveSubtypes(newIds, visited ++ newIds, remaining - 1)
+      frontier.toList.traverse(getSubtypes).map(_.foldLeft(Set.empty[SymbolId])(_ ++ _)).flatMap { next =>
+        val newIds = next -- visited
+        getTransitiveSubtypes(newIds, visited ++ newIds, remaining - 1)
       }
 
   private def isConcrete(sym: IndexedSymbol): Boolean =
@@ -82,11 +82,13 @@ class SymbolIndex(
     }
 
   private def locationArea(loc: Option[Location]): Long =
-    loc.map { l =>
-      val lines = (l.endLine - l.startLine).toLong
-      val cols = (l.endCol - l.startCol).toLong
-      lines * 10000 + cols
-    }.getOrElse(Long.MaxValue)
+    loc
+      .map { l =>
+        val lines = (l.endLine - l.startLine).toLong
+        val cols  = (l.endCol - l.startCol).toLong
+        lines * 10000 + cols
+      }
+      .getOrElse(Long.MaxValue)
 
   // cats traverse for List isn't imported, inline it
   private implicit class ListTraverseOps[A](list: List[A]) {

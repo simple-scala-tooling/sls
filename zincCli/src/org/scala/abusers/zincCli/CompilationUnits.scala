@@ -1,22 +1,23 @@
 package org.scala.abusers.zincCli
 
-import xsbti.VirtualFile
 import net.openhft.hashing.LongHashFunction
-import java.io.InputStream
-import java.nio.file.Path
-import java.nio.file.Files
-import java.nio.charset.StandardCharsets
-import java.io.ByteArrayInputStream
-import xsbti.PathBasedFile
-
 import xsbti.BasicVirtualFileRef
+import xsbti.PathBasedFile
+import xsbti.VirtualFile
 
-/**
- * In-memory source file. Not a case class because we don't want to use the raw Path for equality (BasicVirtualFileRef
- * implements id-based equality for us).
- */
-class VirtualSourceFile private (p: Path, c: HashedContent) extends BasicVirtualFileRef(p.toAbsolutePath().toString) with VirtualFile {
-  override def contentHash(): Long = LongHashFunction.farmNa().hashChars(c.hash)
+import java.io.ByteArrayInputStream
+import java.io.InputStream
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.Path
+
+/** In-memory source file. Not a case class because we don't want to use the raw Path for equality (BasicVirtualFileRef
+  * implements id-based equality for us).
+  */
+class VirtualSourceFile private (p: Path, c: HashedContent)
+    extends BasicVirtualFileRef(p.toAbsolutePath().toString)
+    with VirtualFile {
+  override def contentHash(): Long  = LongHashFunction.farmNa().hashChars(c.hash)
   override def input(): InputStream = c.contentAsInputStream
 
   override def toString: String = s"VirtualSourceFile($id@${c.hash})"
@@ -25,7 +26,6 @@ class VirtualSourceFile private (p: Path, c: HashedContent) extends BasicVirtual
 object VirtualSourceFile {
   def apply(p: Path, c: HashedContent): VirtualSourceFile = new VirtualSourceFile(p, c)
 }
-
 
 trait HashedContent {
   def hash: String
@@ -39,15 +39,14 @@ trait HashedContent {
 object HashedContent {
   val hashFunction = com.google.common.hash.Hashing.sha256()
 
-  def of(path: Path): HashedContent = {
+  def of(path: Path): HashedContent =
     new HashedContent {
       def contentAsInputStream = new ByteArrayInputStream(utf8ContentAsString.getBytes())
-      val utf8ContentAsString = Files.readString(path)
-      def size = utf8ContentAsString.size
-      def compressedSize: Int = size
-      def hash: String = hashFunction.hashString(utf8ContentAsString, StandardCharsets.UTF_8).toString
+      val utf8ContentAsString  = Files.readString(path)
+      def size                 = utf8ContentAsString.size
+      def compressedSize: Int  = size
+      def hash: String         = hashFunction.hashString(utf8ContentAsString, StandardCharsets.UTF_8).toString
     }
-  }
 }
 
 // final case class ClassInJarVirtualFile private (jar: String, clazz: String)
@@ -66,7 +65,9 @@ object HashedContent {
 // }
 
 final case class SimpleVirtualFile(override val id: String)
-    extends BasicVirtualFileRef(id) with VirtualFile with PathBasedFile {
+    extends BasicVirtualFileRef(id)
+    with VirtualFile
+    with PathBasedFile {
 
   override def input(): InputStream = Files.newInputStream(toPath)
 

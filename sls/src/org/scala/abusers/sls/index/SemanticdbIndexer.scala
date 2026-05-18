@@ -1,23 +1,24 @@
 package org.scala.abusers.sls.index
 
+import dotty.tools.dotc.semanticdb.SymbolInformation
+import dotty.tools.dotc.semanticdb.TextDocument
 import org.scala.abusers.sls.SourceUri
-import dotty.tools.dotc.semanticdb.{TextDocument, SymbolInformation}
 
-object SemanticdbIndexer:
+object SemanticdbIndexer {
 
   def indexDocument(
       uri: SourceUri,
       bytes: Array[Byte],
       buildTarget: String,
-  ): (List[IndexedSymbol], List[SymbolReference]) =
-    val doc = TextDocument.parseFrom(bytes)
+  ): (List[IndexedSymbol], List[SymbolReference]) = {
+    val doc         = TextDocument.parseFrom(bytes)
     val symbolInfos = doc.symbols.map(s => s.symbol -> s).toMap
-    val symbols = List.newBuilder[IndexedSymbol]
-    val refs = List.newBuilder[SymbolReference]
+    val symbols     = List.newBuilder[IndexedSymbol]
+    val refs        = List.newBuilder[SymbolReference]
 
     doc.occurrences.foreach { occ =>
-      if occ.symbol.nonEmpty && occ.range.isDefined then
-        val r = occ.range.get
+      if occ.symbol.nonEmpty && occ.range.isDefined then {
+        val r   = occ.range.get
         val loc = Location(
           uri = uri,
           startLine = r.startLine,
@@ -27,9 +28,11 @@ object SemanticdbIndexer:
         )
         val symId = SymbolId(semanticDbToFullName(occ.symbol))
 
-        if occ.role.isDefinition then
+        if occ.role.isDefinition then {
           val info = symbolInfos.get(occ.symbol)
-          val name = info.map(_.displayName).filter(_.nonEmpty)
+          val name = info
+            .map(_.displayName)
+            .filter(_.nonEmpty)
             .getOrElse(extractSimpleName(occ.symbol))
           symbols += IndexedSymbol(
             id = symId,
@@ -42,17 +45,24 @@ object SemanticdbIndexer:
             parents = Nil,
             typeSignature = None,
           )
-        else if occ.role.isReference then
-          refs += SymbolReference(symId, loc, ReferenceKind.Call)
+        } else if occ.role.isReference then refs += SymbolReference(symId, loc, ReferenceKind.Call)
+      }
     }
 
     (symbols.result(), refs.result())
+  }
 
   private def extractSimpleName(symbol: String): String =
-    symbol.replaceAll("\\(\\+?\\d*\\)", "").stripSuffix("#").stripSuffix(".")
-      .split("[/#.]").filter(_.nonEmpty).lastOption.getOrElse(symbol)
+    symbol
+      .replaceAll("\\(\\+?\\d*\\)", "")
+      .stripSuffix("#")
+      .stripSuffix(".")
+      .split("[/#.]")
+      .filter(_.nonEmpty)
+      .lastOption
+      .getOrElse(symbol)
 
-  private def infoToKind(info: SymbolInformation): SymbolKind =
+  private def infoToKind(info: SymbolInformation): SymbolKind = {
     val k = info.kind
     if k.isClass then SymbolKind.Class
     else if k.isTrait || k.isInterface then SymbolKind.Trait
@@ -63,3 +73,5 @@ object SemanticdbIndexer:
     else if k.isTypeParameter then SymbolKind.TypeParam
     else if k.isPackage then SymbolKind.Package
     else SymbolKind.Val
+  }
+}

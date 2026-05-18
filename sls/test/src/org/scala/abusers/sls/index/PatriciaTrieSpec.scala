@@ -11,7 +11,8 @@ object PatriciaTrieSpec extends SimpleIOSuite {
   }
 
   test("insert multiple keys with shared prefix") {
-    val trie = PatriciaTrie.empty[Int]
+    val trie = PatriciaTrie
+      .empty[Int]
       .insert("abc", 1)
       .insert("abd", 2)
       .insert("xyz", 3)
@@ -23,7 +24,8 @@ object PatriciaTrieSpec extends SimpleIOSuite {
   }
 
   test("prefix search returns matching entries only") {
-    val trie = PatriciaTrie.empty[Int]
+    val trie = PatriciaTrie
+      .empty[Int]
       .insert("abc", 1)
       .insert("abd", 2)
       .insert("xyz", 3)
@@ -34,7 +36,8 @@ object PatriciaTrieSpec extends SimpleIOSuite {
   }
 
   test("prefix search with empty string returns all entries") {
-    val trie = PatriciaTrie.empty[Int]
+    val trie = PatriciaTrie
+      .empty[Int]
       .insert("a", 1)
       .insert("b", 2)
     val results = trie.prefixSearch("")
@@ -47,7 +50,8 @@ object PatriciaTrieSpec extends SimpleIOSuite {
   }
 
   test("remove existing key; siblings remain") {
-    val trie = PatriciaTrie.empty[Int]
+    val trie = PatriciaTrie
+      .empty[Int]
       .insert("abc", 1)
       .insert("abd", 2)
       .remove("abc")
@@ -58,7 +62,7 @@ object PatriciaTrieSpec extends SimpleIOSuite {
   }
 
   test("remove non-existent key returns unchanged trie") {
-    val trie = PatriciaTrie.empty[Int].insert("abc", 1)
+    val trie  = PatriciaTrie.empty[Int].insert("abc", 1)
     val trie2 = trie.remove("xyz")
     IO(
       expect(trie2.get("abc") == Some(1)) &&
@@ -67,7 +71,8 @@ object PatriciaTrieSpec extends SimpleIOSuite {
   }
 
   test("insert same key twice replaces value") {
-    val trie = PatriciaTrie.empty[Int]
+    val trie = PatriciaTrie
+      .empty[Int]
       .insert("abc", 1)
       .insert("abc", 99)
     IO(
@@ -85,7 +90,8 @@ object PatriciaTrieSpec extends SimpleIOSuite {
   }
 
   test("keys that are prefixes of each other") {
-    val trie = PatriciaTrie.empty[Int]
+    val trie = PatriciaTrie
+      .empty[Int]
       .insert("a", 1)
       .insert("ab", 2)
       .insert("abc", 3)
@@ -98,7 +104,8 @@ object PatriciaTrieSpec extends SimpleIOSuite {
   }
 
   test("size tracks correctly through insert and remove") {
-    val trie = PatriciaTrie.empty[Int]
+    val trie = PatriciaTrie
+      .empty[Int]
       .insert("a", 1)
       .insert("b", 2)
       .insert("c", 3)
@@ -107,7 +114,8 @@ object PatriciaTrieSpec extends SimpleIOSuite {
   }
 
   test("insert + remove of same single key yields empty trie") {
-    val trie = PatriciaTrie.empty[Int]
+    val trie = PatriciaTrie
+      .empty[Int]
       .insert("hello", 1)
       .remove("hello")
     IO(
@@ -118,7 +126,7 @@ object PatriciaTrieSpec extends SimpleIOSuite {
 
   test("large-scale: insert 10000 entries and prefix search") {
     val entries = (0 until 10000).map(i => f"key$i%05d" -> i)
-    val trie = entries.foldLeft(PatriciaTrie.empty[Int]) { case (t, (k, v)) => t.insert(k, v) }
+    val trie    = entries.foldLeft(PatriciaTrie.empty[Int]) { case (t, (k, v)) => t.insert(k, v) }
     val results = trie.prefixSearch("key001") // should get key00100..key00199
     IO(
       expect(trie.size == 10000) &&
@@ -127,7 +135,8 @@ object PatriciaTrieSpec extends SimpleIOSuite {
   }
 
   test("update modifies existing value") {
-    val trie = PatriciaTrie.empty[Int]
+    val trie = PatriciaTrie
+      .empty[Int]
       .insert("x", 10)
       .update("x", _ + 5)
     IO(expect(trie.get("x") == Some(15)))
@@ -143,7 +152,8 @@ object PatriciaTrieSpec extends SimpleIOSuite {
   }
 
   test("prefix search where prefix ends mid-edge") {
-    val trie = PatriciaTrie.empty[Int]
+    val trie = PatriciaTrie
+      .empty[Int]
       .insert("abcdef", 1)
       .insert("abcxyz", 2)
     val results = trie.prefixSearch("abcd").map(_._1)

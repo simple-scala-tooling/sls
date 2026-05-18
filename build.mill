@@ -3,20 +3,20 @@
 //| - com.disneystreaming.smithy4s::smithy4s-mill-codegen-plugin::0.18.52
 //| - com.goyeau::mill-scalafix::0.6.0
 
-import mill.javalib.publish.Developer
-import mill.javalib.publish.VersionControl
-import mill.javalib.publish.License
-import mill.javalib.publish.PomSettings
 import com.goyeau.mill.scalafix.ScalafixModule
 import coursier.core.Repository
 import coursier.maven.MavenRepository
 import mill.*
 import mill.api.Task.Simple.create
+import mill.javalib.publish.Developer
+import mill.javalib.publish.License
+import mill.javalib.publish.PomSettings
+import mill.javalib.publish.VersionControl
 import scalalib.*
 import smithy4s.codegen.mill.*
 
-val jsonrpcVersion     = "0.1.0"
-val smithyVersion      = "1.70.0"
+val jsonrpcVersion = "0.1.0"
+val smithyVersion  = "1.70.0"
 
 trait CommonScalaModule extends ScalaModule with ScalafixModule {
   override def repositoriesTask: Task[Seq[Repository]] = Task.Anon {
@@ -24,12 +24,12 @@ trait CommonScalaModule extends ScalaModule with ScalafixModule {
       MavenRepository("https://s01.oss.sonatype.org/content/repositories/snapshots"),
       MavenRepository("https://s01.oss.sonatype.org/content/repositories/releases"),
       MavenRepository("https://evolution.jfrog.io/artifactory/public"),
-      MavenRepository("https://central.sonatype.com/repository/maven-snapshots/")
+      MavenRepository("https://central.sonatype.com/repository/maven-snapshots/"),
     ) ++ super.repositoriesTask()
   }
 
-  def scalaVersion = "3.8.3"
-  def scalacOptions = Seq("-Wunused:all")
+  def scalaVersion  = "3.8.3"
+  def scalacOptions = Seq("-Wunused:all", "-rewrite", "-no-indent")
 }
 
 object slsSmithy extends CommonScalaModule with Smithy4sModule {
@@ -49,7 +49,7 @@ object profilingRuntime extends CommonScalaModule with PublishModule {
     mvn"org.typelevel::otel4s-sdk:0.13.1",
     mvn"org.typelevel::otel4s-sdk-exporter:0.13.1",
     mvn"org.typelevel::otel4s-experimental-metrics:0.7.0",
-    mvn"org.typelevel::otel4s-instrumentation-metrics:0.13.1"
+    mvn"org.typelevel::otel4s-instrumentation-metrics:0.13.1",
   )
 
   def pomSettings = PomSettings(
@@ -60,7 +60,7 @@ object profilingRuntime extends CommonScalaModule with PublishModule {
     versionControl = VersionControl.github("simple-scala-tooling", "simple-language-server"),
     developers = Seq(
       Developer("rochala", "Jędrzej Rochala", url = "https://github.com/rochala")
-    )
+    ),
   )
 
   def publishVersion = "0.0.1-SNAPSHOT"
@@ -74,7 +74,7 @@ object sls extends CommonScalaModule {
 
   override def resources = Task {
     val zincJar = zincCli.assembly().path
-    val dest = Task.dest / "zinc-cli"
+    val dest    = Task.dest / "zinc-cli"
     os.makeDir.all(dest)
     os.copy(zincJar, dest / "zincCli.jar", replaceExisting = true)
     super.resources() ++ Seq(PathRef(Task.dest))
@@ -102,7 +102,7 @@ object sls extends CommonScalaModule {
   )
 
   def javacOptions = Seq(
-    "-Dotel.service.name=simple-language-server",
+    "-Dotel.service.name=simple-language-server"
   )
 
   object test extends ScalaTests {
@@ -129,7 +129,7 @@ object zincSmithy extends CommonScalaModule with Smithy4sModule with PublishModu
     versionControl = VersionControl.github("simple-scala-tooling", "zinc-csp"),
     developers = Seq(
       Developer("rochala", "Jędrzej Rochala", url = "https://github.com/rochala")
-    )
+    ),
   )
 
   def publishVersion = "0.0.1-SNAPSHOT"
@@ -157,9 +157,9 @@ object exampleZincCliClient extends CommonScalaModule {
 
   override def forkEnv = Task {
     Map(
-      "SERVER_JAR" -> zincCli.assembly().path.toString,
-      "TEST_SOURCES" -> testModule.sources().map(_.path.toString).mkString(";"),
-      "TEST_CLASSPATH" -> (testModule.compileClasspath()).map(_.path.toString).mkString(";"),
+      "SERVER_JAR"         -> zincCli.assembly().path.toString,
+      "TEST_SOURCES"       -> testModule.sources().map(_.path.toString).mkString(";"),
+      "TEST_CLASSPATH"     -> testModule.compileClasspath().map(_.path.toString).mkString(";"),
       "TEST_SCALA_VERSION" -> testModule.scalaVersion(),
     )
   }
@@ -202,7 +202,7 @@ object zincCli extends CommonScalaModule with PublishModule {
     versionControl = VersionControl.github("simple-scala-tooling", "zinc-csp"),
     developers = Seq(
       Developer("rochala", "Jędrzej Rochala", url = "https://github.com/rochala")
-    )
+    ),
   )
 
   def publishVersion = "0.0.1-SNAPSHOT"

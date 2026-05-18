@@ -11,7 +11,9 @@ object IndexTypesSpec extends SimpleIOSuite {
   }
 
   test("SymbolId equality") {
-    IO(expect(SymbolId("a.B#") == SymbolId("a.B#")) &&
-      expect(SymbolId("a.B#") != SymbolId("a.C#")))
+    IO(
+      expect(SymbolId("a.B#") == SymbolId("a.B#")) &&
+        expect(SymbolId("a.B#") != SymbolId("a.C#"))
+    )
   }
 }

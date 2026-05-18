@@ -1,19 +1,19 @@
 package org.scala.abusers.zincCli
 
-import sbt.internal.inc.*
-import java.nio.file.Path
+import coursierapi.Cache
 import coursierapi.Dependency
 import coursierapi.Fetch
-import coursierapi.Cache
 import coursierapi.MavenRepository
-import scala.jdk.CollectionConverters.*
-import xsbti.compile.ZincCompilerUtil
+import sbt.internal.inc.*
 import sbt.internal.inc.classpath.ClassLoaderCache
-import java.util.concurrent.ConcurrentHashMap
 import sbt.internal.inc.classpath.ClasspathUtil
 import xsbti.compile.ClasspathOptionsUtil
-import java.{util => ju}
+import xsbti.compile.ZincCompilerUtil
+
 import java.io.File
+import java.nio.file.Path
+import java.util.concurrent.ConcurrentHashMap
+import scala.jdk.CollectionConverters.*
 
 class ZincClassLoaderCaches { // rewrite this to mapref, copy code from Scastie
   lazy val classLoaderCache = Some(new ClassLoaderCache(null: ClassLoader))
@@ -24,12 +24,12 @@ class ZincClassLoaderCaches { // rewrite this to mapref, copy code from Scastie
   def classLoaderFor(scalaClasspath: Seq[Path], parent: ClassLoader): ClassLoader =
     classLoaders.computeIfAbsent(
       scalaClasspath,
-      cp => ClasspathUtil.toLoader(cp.toList, parent)
+      cp => ClasspathUtil.toLoader(cp.toList, parent),
     )
 }
 
 object ScalaInstanceProvider {
-  private val coursierCache = Cache.create() // .withLogger TODO No completions here
+  private val coursierCache    = Cache.create() // .withLogger TODO No completions here
   private val classloaderCache = ZincClassLoaderCaches()
   private val classLoaders: ConcurrentHashMap[String, AnalyzingCompiler] = new ConcurrentHashMap
 
@@ -45,7 +45,7 @@ object ScalaInstanceProvider {
   def getScalaInstance(version: String): AnalyzingCompiler = { // TODO: Migrate to IO
     def getScalaInstance0 = {
       // val version = "3.7.4"
-      val dep = compiledBridgeDefinition(version)
+      val dep        = compiledBridgeDefinition(version)
       val downloaded = Fetch
         .create()
         .withCache(coursierCache)
@@ -57,7 +57,7 @@ object ScalaInstanceProvider {
         .find(_.getName().contains("sbt-bridge"))
         .getOrElse(sys.error(s"Did not download sbt-bridge for $version"))
 
-      val scalaClasspath = {
+      val scalaClasspath =
         Fetch
           .create()
           .withCache(coursierCache)
@@ -67,7 +67,6 @@ object ScalaInstanceProvider {
           .asScala
           .toList
           .map(_.toPath)
-      }
 
       val scalaLibraryJars = scalaClasspath.filter(_.toString.contains("scala-library-"))
       val scalaCompilerJar = scalaClasspath.filter(_.toString.contains("compiler")).headOption
@@ -77,12 +76,12 @@ object ScalaInstanceProvider {
       val others = (scalaClasspath diff scalaLibraryJars) diff scalaCompilerJar.toList
 
       val jarsToLoad: Vector[Path] =
-        (scalaCompilerJar.toVector ++ scalaLibraryJars ++ others)
+        scalaCompilerJar.toVector ++ scalaLibraryJars ++ others
 
       val jarsToLoadWithoutLibrary = jarsToLoad diff scalaLibraryJars
 
       val loaderLibraryOnly = classloaderCache.classLoaderFor(scalaLibraryJars, ScalaInstanceTopLoader.topClassLoader)
-      val loader = classloaderCache.classLoaderFor(jarsToLoadWithoutLibrary, loaderLibraryOnly)
+      val loader            = classloaderCache.classLoaderFor(jarsToLoadWithoutLibrary, loaderLibraryOnly)
 
       val allJars = jarsToLoad.map(_.toFile).toArray
 
@@ -94,19 +93,23 @@ object ScalaInstanceProvider {
         libraryJars = scalaLibraryJars.map(_.toFile).toArray,
         compilerJars = allJars,
         allJars = allJars,
-        explicitActual = None
+        explicitActual = None,
       )
 
       val compilerBridgeProvider = ZincCompilerUtil.constantBridgeProvider(scalaInstance, downloaded)
 
       AnalyzingCompiler(
-        scalaInstance, compilerBridgeProvider, ClasspathOptionsUtil.javac(false), _ => (), classloaderCache.classLoaderCache
+        scalaInstance,
+        compilerBridgeProvider,
+        ClasspathOptionsUtil.javac(false),
+        _ => (),
+        classloaderCache.classLoaderCache,
       )
     }
 
     classLoaders.computeIfAbsent(
       version,
-      _ => getScalaInstance0
+      _ => getScalaInstance0,
     )
 
   }

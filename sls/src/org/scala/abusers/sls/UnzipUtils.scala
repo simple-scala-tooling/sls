@@ -1,10 +1,13 @@
 package org.scala.abusers.sls
 
 import cats.effect.IO
+import fs2.io.file.Files
+import fs2.io.file.Path
 import fs2.Stream
-import fs2.io.file.{Files, Path}
+
 import java.io.InputStream
-import java.util.zip.{ZipEntry, ZipInputStream}
+import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
 
 object UnzipUtils {
 
@@ -32,22 +35,24 @@ object UnzipUtils {
   def unzipJarFromPath(jarPath: Path, targetDirectory: Path): IO[Unit] =
     Files[IO].exists(targetDirectory).flatMap {
       case true =>
-        cats.effect.std.Console[IO].errorln(s"Target directory $targetDirectory already exists. Aborting unzip operation.") *> IO.unit
-      case false => Files[IO]
-        .readAll(jarPath)
-        .through(fs2.io.toInputStream[IO])
-        .evalMap(unzipJar(_, targetDirectory))
-        .compile
-        .drain
+        cats.effect.std
+          .Console[IO]
+          .errorln(s"Target directory $targetDirectory already exists. Aborting unzip operation.") *> IO.unit
+      case false =>
+        Files[IO]
+          .readAll(jarPath)
+          .through(fs2.io.toInputStream[IO])
+          .evalMap(unzipJar(_, targetDirectory))
+          .compile
+          .drain
     }
 
-
-  private def readEntryBytes(zis: ZipInputStream, entry: ZipEntry): Array[Byte] = {
+  private def readEntryBytes(zis: ZipInputStream, entry: ZipEntry): Array[Byte] =
     if (entry.isDirectory) {
       Array.empty[Byte]
     } else {
-      val buffer = new Array[Byte](8192)
-      val result = scala.collection.mutable.ArrayBuffer[Byte]()
+      val buffer    = new Array[Byte](8192)
+      val result    = scala.collection.mutable.ArrayBuffer[Byte]()
       var bytesRead = zis.read(buffer)
       while (bytesRead != -1) {
         result ++= buffer.take(bytesRead)
@@ -55,7 +60,6 @@ object UnzipUtils {
       }
       result.toArray
     }
-  }
 
   private def processZipEntry(entry: ZipEntry, data: Array[Byte], targetDirectory: Path): IO[Unit] = {
     val entryPath = targetDirectory / Path(entry.getName)

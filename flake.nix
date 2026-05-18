@@ -1,6 +1,6 @@
 {
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     flake-parts = {
       url = "github:hercules-ci/flake-parts";
     };
@@ -19,7 +19,7 @@
       perSystem = { system, config, pkgs, ... }:
         {
           devShells.default = pkgs.mkShell {
-            packages = [ pkgs.jdk21 ];
+            packages = [ pkgs.jdk21 pkgs.mill ];
             inputsFrom = [
               config.treefmt.build.devShell
             ];

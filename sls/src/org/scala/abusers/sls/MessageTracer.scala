@@ -10,7 +10,8 @@ class MessageTracer(name: String, envVar: String) {
   private val logger = LoggerFactory.getLogger(name)
 
   private val enabled: Boolean =
-    sys.env.get(envVar)
+    sys.env
+      .get(envVar)
       .orElse(sys.props.get(envVar.toLowerCase.replace('_', '.')))
       .exists(v => v.equalsIgnoreCase("true") || v == "1")
 
@@ -28,9 +29,7 @@ class MessageTracer(name: String, envVar: String) {
 
   def traceOutgoing: Pipe[IO, Message, Message] =
     if (enabled) {
-      _.evalTap(msg =>
-        IO(logger.trace(s"← OUT: ${MessageTracer.formatMessage(msg)}"))
-      )
+      _.evalTap(msg => IO(logger.trace(s"← OUT: ${MessageTracer.formatMessage(msg)}")))
     } else {
       identity
     }
@@ -38,10 +37,11 @@ class MessageTracer(name: String, envVar: String) {
   def isEnabled: Boolean = enabled
 }
 
-object MessageTracer extends MessageTracer(
-  "org.scala.abusers.sls.MessageTracer",
-  "SLS_TRACE_LSP_MESSAGES"
-) {
+object MessageTracer
+    extends MessageTracer(
+      "org.scala.abusers.sls.MessageTracer",
+      "SLS_TRACE_LSP_MESSAGES",
+    ) {
   private[sls] def formatMessage(msg: Message): String = msg match {
     case jsonrpclib.InputMessage.RequestMessage(method, callId, params) =>
       s"Request[$callId] $method ${params.map(_.data.noSpaces).getOrElse("{}")}"
@@ -54,7 +54,8 @@ object MessageTracer extends MessageTracer(
   }
 }
 
-object CspMessageTracer extends MessageTracer(
-  "org.scala.abusers.sls.CspMessageTracer",
-  "SLS_TRACE_CSP_MESSAGES"
-)
+object CspMessageTracer
+    extends MessageTracer(
+      "org.scala.abusers.sls.CspMessageTracer",
+      "SLS_TRACE_CSP_MESSAGES",
+    )

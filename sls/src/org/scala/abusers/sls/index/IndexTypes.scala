@@ -4,33 +4,40 @@ import org.scala.abusers.sls.SourceUri
 
 opaque type SymbolId = String
 
-object SymbolId:
+object SymbolId {
   def apply(value: String): SymbolId = value
+}
 
 extension (id: SymbolId) def value: String = id
 
-/** Converts a SemanticDB symbol (e.g. `scala/collection/immutable/List#`)
-  * to the dotted fullName format used by TASTy (e.g. `scala.collection.immutable.List`).
+/** Converts a SemanticDB symbol (e.g. `scala/collection/immutable/List#`) to the dotted fullName format used by TASTy
+  * (e.g. `scala.collection.immutable.List`).
   */
 def semanticDbToFullName(sdbSymbol: String): String =
-  sdbSymbol.replaceAll("\\(\\+?\\d*\\)", "").stripSuffix("#").stripSuffix(".")
-    .replace("#", ".").replace("/", ".")
+  sdbSymbol
+    .replaceAll("\\(\\+?\\d*\\)", "")
+    .stripSuffix("#")
+    .stripSuffix(".")
+    .replace("#", ".")
+    .replace("/", ".")
 
-/** Generate candidate SymbolIds for a dotted name, covering the class/object ambiguity.
-  * TASTy uses `$` suffix for objects (e.g. `Test$`), but SemanticDB doesn't.
-  * For `com.example.Test.dupa`, we also try `com.example.Test$.dupa`.
+/** Generate candidate SymbolIds for a dotted name, covering the class/object ambiguity. TASTy uses `$` suffix for
+  * objects (e.g. `Test$`), but SemanticDB doesn't. For `com.example.Test.dupa`, we also try `com.example.Test$.dupa`.
   */
-def symbolIdCandidates(dottedName: String): List[SymbolId] =
-  val base = SymbolId(dottedName)
+def symbolIdCandidates(dottedName: String): List[SymbolId] = {
+  val base    = SymbolId(dottedName)
   val lastDot = dottedName.lastIndexOf('.')
   if lastDot <= 0 then List(base)
-  else
+  else {
     val ownerEnd = dottedName.lastIndexOf('.', lastDot - 1)
     if ownerEnd <= 0 then List(base)
-    else
-      val owner = dottedName.substring(ownerEnd + 1, lastDot)
+    else {
+      val owner      = dottedName.substring(ownerEnd + 1, lastDot)
       val withDollar = dottedName.substring(0, ownerEnd + 1) + owner + "$" + dottedName.substring(lastDot)
       List(base, SymbolId(withDollar)).distinct
+    }
+  }
+}
 
 case class Location(
     uri: SourceUri,
@@ -40,19 +47,23 @@ case class Location(
     endCol: Int,
 )
 
-enum SymbolKind:
+enum SymbolKind {
   case Class, Trait, Object, Enum, Method, Val, Var, TypeAlias, TypeParam,
     Package, Constructor, Field, EnumCase, Given
+}
 
-enum Visibility:
+enum Visibility {
   case Public, Protected, Private, PackagePrivate
+}
 
-enum ReferenceKind:
+enum ReferenceKind {
   case Call, TypeRef, Import, Override, Extends, Annotation
+}
 
-enum SymbolOrigin:
+enum SymbolOrigin {
   case ProjectTasty(buildTarget: String, sourceFile: SourceUri)
   case DependencyClassfile(jarPath: String)
+}
 
 case class IndexedSymbol(
     id: SymbolId,

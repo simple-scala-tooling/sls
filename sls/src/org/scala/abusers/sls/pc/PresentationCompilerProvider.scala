@@ -58,7 +58,9 @@ class PresentationCompilerProvider(
       classloader       <- freshPresentationCompilerClassloader(projectClasspath, compilerClasspath)
       pc <- serviceLoader.load(classOf[RawPresentationCompiler], PresentationCompilerProvider.classname, classloader)
       scalacOptions0 = scalacOptions ++ Seq("-Ywith-best-effort-tasty", "-Ybest-effort")
-      _ <- IO.consoleForIO.error(s"Creating presentation compiler with classpath: ${projectClasspath.map(_.toNioPath.toString).mkString(", ")} and options: ${scalacOptions0.mkString(" ")}")
+      _ <- IO.consoleForIO.error(
+        s"Creating presentation compiler with classpath: ${projectClasspath.map(_.toNioPath.toString).mkString(", ")} and options: ${scalacOptions0.mkString(" ")}"
+      )
     } yield pc.newInstance("pc-id-replace", projectClasspath.map(_.toNioPath).asJava, scalacOptions0.toList.asJava)
 
   def get(info: ScalaBuildTargetInformation)(using SynchronizedState): IO[RawPresentationCompiler] =
@@ -71,7 +73,7 @@ object PresentationCompilerProvider {
   def instance: IO[PresentationCompilerProvider] =
     for {
       serviceLoader <- BlockingServiceLoader.instance
-      pcProvider <- SCache
+      pcProvider    <- SCache
         .expiring[IO, BuildTargetIdentifier, RawPresentationCompiler]( // we will need to move this out because other services will want to manage the state of the cache and invalidate when configuration changes also this shoul be ModuleFingerprint or something like that
           ExpiringCache.Config(expireAfterRead = 5.minutes),
           None,
@@ -89,7 +91,7 @@ object ScalaVersion {
   private val separators   = Array('.', '-', '_')
 
   def apply(scalaVersion: String): ScalaVersion = scalaVersion
-  given Ordering[ScalaVersion] = new Ordering[ScalaVersion] {
+  given Ordering[ScalaVersion]                  = new Ordering[ScalaVersion] {
     def compareParts(x: String, y: String): Int =
       (x.headOption, y.headOption) match {
         case (Some(c1), Some(c2)) if c1.isDigit && c2.isDigit =>
