@@ -2,6 +2,10 @@ package org.scala.abusers
 package sls.index
 
 import cats.effect.IO
+import coursierapi.Cache
+import coursierapi.Dependency
+import coursierapi.Fetch
+import coursierapi.Module
 import org.scala.abusers.csp.CompileOutput
 import org.scala.abusers.sls.toSourceUri
 import org.scala.abusers.sls.AbsolutePath
@@ -12,13 +16,15 @@ import org.slf4j.LoggerFactory
 
 import java.io.FileInputStream
 import java.util.zip.ZipInputStream
+import scala.jdk.CollectionConverters.*
 
 case class IndexManager(
     projectIndex: ProjectIndex,
     dependencyIndex: DependencyIndex,
     bytecodeIndexer: BytecodeIndexer,
 ) {
-  private val logger = LoggerFactory.getLogger(this.getClass)
+  private val logger        = LoggerFactory.getLogger(this.getClass)
+  private val coursierCache = Cache.create()
 
   def indexDependencies(targets: Set[ScalaBuildTargetInformation]): IO[Unit] = {
     val projectDirs  = targets.flatMap(t => Set(t.classesDir, t.classJarPath))
@@ -123,14 +129,16 @@ case class IndexManager(
       bytecodeIndexer.indexJar(jarPath).flatMap(dependencyIndex.addJar(jar, _))
 
     def indexViaJavaSources(sourcesJar: AbsolutePath): IO[Boolean] =
-      JavaIndexer
-        .forDependency(jar)
-        .indexJarEntries(sourcesJar, classpath)
-        .flatMap { results =>
-          val symbols = results.values.flatMap(_._1).toList
-          if symbols.isEmpty then IO.pure(false)
-          else dependencyIndex.addJar(jar, symbols).as(true)
-        }
+      resolveLibClasspath(jarPath, fallback = classpath).flatMap { cp =>
+        JavaIndexer
+          .forDependency(jar)
+          .indexJarEntries(sourcesJar, cp)
+          .flatMap { results =>
+            val symbols = results.values.flatMap(_._1).toList
+            if symbols.isEmpty then IO.pure(false)
+            else dependencyIndex.addJar(jar, symbols).as(true)
+          }
+      }
 
     (for {
       hasTasty <- jarContainsTasty(jarPath)
@@ -166,6 +174,36 @@ case class IndexManager(
           }
     } yield ()).handleError(e => logger.error(s"Failed to index JAR $jar", e))
   }
+
+  /** Resolve the jar's own transitive Maven dependencies (via coursier) and use those as the classpath when typing its
+    * sources. Hermetic per-jar — indexing is stable across projects, which makes a future on-disk cache valid. Falls
+    * back to `fallback` if the jar lacks `pom.properties` or coursier fails to resolve.
+    */
+  private def resolveLibClasspath(
+      jarPath: AbsolutePath,
+      fallback: List[AbsolutePath],
+  ): IO[List[AbsolutePath]] =
+    IO.blocking(JarMavenCoordinates.read(jarPath)).flatMap {
+      case None =>
+        IO(logger.debug(s"No Maven coordinates in $jarPath, using fallback classpath")).as(fallback)
+      case Some(coords) =>
+        IO.blocking {
+          // TODO: only Maven Central is consulted. Projects pulling deps from snapshot or private repos will fail
+          // resolution and fall through to the project-CP fallback. Thread the project's repository list through
+          // here via `.withRepositories(...)` when we have access to it.
+          Fetch
+            .create()
+            .withCache(coursierCache)
+            .addDependencies(Dependency.of(Module.of(coords.groupId, coords.artifactId), coords.version))
+            .fetch()
+            .asScala
+            .map(f => AbsolutePath(f.toPath))
+            .toList
+        }.handleErrorWith { e =>
+          IO(logger.warn(s"Coursier resolution failed for $coords ($jarPath), using fallback classpath", e))
+            .as(fallback)
+        }
+    }
 
   private def findSourcesJar(jarPath: AbsolutePath): Option[AbsolutePath] = {
     val nio        = jarPath.toNioPath
