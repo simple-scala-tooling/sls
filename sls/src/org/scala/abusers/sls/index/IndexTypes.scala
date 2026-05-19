@@ -62,6 +62,7 @@ enum ReferenceKind {
 
 enum SymbolOrigin {
   case ProjectTasty(buildTarget: String, sourceFile: SourceUri)
+  case ProjectJavaSource(buildTarget: String, sourceFile: SourceUri)
   case DependencyClassfile(jarPath: String)
 }
 

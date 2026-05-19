@@ -1,7 +1,6 @@
 package org.scala.abusers.sls.index
 
 import dotty.tools.dotc.core.Contexts.Context
-import dotty.tools.dotc.core.Flags
 import dotty.tools.dotc.core.Phases.Phase
 import dotty.tools.dotc.parsing.Parser
 import dotty.tools.dotc.typer.TyperPhase
@@ -12,45 +11,30 @@ import dotty.tools.dotc.Driver
 import dotty.tools.unsupported
 
 import java.io.File.pathSeparator
-import scala.collection.mutable
 
-final case class JavaMethodInfo(name: String, signature: String)
-final case class JavaFieldInfo(name: String, tpe: String)
-final case class JavaClassInfo(fullName: String, methods: List[JavaMethodInfo], fields: List[JavaFieldInfo])
-final case class JavaFrontendResult(classes: List[JavaClassInfo], hasErrors: Boolean)
+/** Receives the typed Java compilation units after Parser → TyperPhase. Implementations run with a live Context so they
+  * can read symbols, types, and positions directly. Mirrors `scala.tasty.inspector.Inspector`.
+  */
+trait JavaInspector {
+  def inspect(units: List[CompilationUnit])(using Context): Unit
+}
 
-/** Minimal dotc pipeline that runs Parser → TyperPhase on `.java` sources and snapshots the class/member symbols that
-  * the frontend produces. Mirrors the structure of [[TastyInspectorDriver]] but for Java source input.
+/** Minimal dotc pipeline that runs Parser → TyperPhase on `.java` sources and hands the typed units to a
+  * [[JavaInspector]] inside a capture phase. Mirrors the structure of [[TastyInspectorDriver]] but for Java input.
   */
 object JavaFrontendDriver {
 
-  def runOnJavaSources(javaFiles: List[String], extraClasspath: List[String] = Nil): JavaFrontendResult = {
-    val collector = mutable.ListBuffer.empty[JavaClassInfo]
+  /** Run the frontend on the given Java sources and invoke `inspector` once with all typed units. Returns true if no
+    * errors were reported.
+    */
+  def inspect(javaFiles: List[String], extraClasspath: List[String] = Nil)(inspector: JavaInspector): Boolean = {
 
     class CapturePhase extends Phase {
       override def phaseName: String   = "captureJavaSymbols"
       override def isCheckable: Boolean = false
 
       override def runOn(units: List[CompilationUnit])(using ctx: Context): List[CompilationUnit] = {
-        import dotty.tools.dotc.ast.tpd
-        import dotty.tools.dotc.ast.tpd.TreeOps
-        units.foreach { unit =>
-          unit.tpdTree.foreachSubTree {
-            case td: tpd.TypeDef if td.symbol.isClass =>
-              val cls   = td.symbol.asClass
-              val decls = cls.info.decls.toList
-              val methods = decls.collect {
-                case m if m.is(Flags.Method) && !m.isClassConstructor =>
-                  JavaMethodInfo(m.name.toString, m.info.show)
-              }
-              val fields = decls.collect {
-                case f if f.isTerm && !f.is(Flags.Method) =>
-                  JavaFieldInfo(f.name.toString, f.info.show)
-              }
-              collector += JavaClassInfo(cls.fullName.toString, methods, fields)
-            case _ => ()
-          }
-        }
+        inspector.inspect(units)
         units
       }
 
@@ -76,6 +60,6 @@ object JavaFrontendDriver {
     // is what our CapturePhase needs.
     val args     = Array("-color:never", "-Xjava-tasty", "-classpath", fullCp) ++ javaFiles
     val reporter = (new JavaFrontendDriverImpl).process(args)
-    JavaFrontendResult(collector.toList, reporter.hasErrors)
+    !reporter.hasErrors
   }
 }
