@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory
 import java.io.OutputStream
 import java.io.PrintStream
 import java.util.zip.ZipFile
+import scala.util.control.NonFatal
 
 class TastyIndexer(buildTarget: String) {
   private val logger = LoggerFactory.getLogger(this.getClass)
@@ -54,8 +55,9 @@ class TastyIndexer(buildTarget: String) {
         AbsolutePath(tempDir).deleteRecursively
     }
 
-  /** Run the TASTy inspector, catching any Throwable (including compiler Errors like AssertionError, LinkageError,
-    * etc.) and suppressing stdout on the current thread to prevent corrupting the JSON-RPC pipe.
+  /** Run the TASTy inspector. Re-throws any Throwable (including compiler Errors like AssertionError, LinkageError)
+    * wrapped in a RuntimeException so cats-effect's IO.handleErrorWith can fire the bytecode fallback. Stdout is
+    * suppressed on the current thread to prevent dotc reporter output from corrupting the JSON-RPC pipe.
     */
   private def runInspector(
       tastyFiles: List[String],
@@ -69,7 +71,7 @@ class TastyIndexer(buildTarget: String) {
     catch {
       case t: Throwable =>
         val target = if jars.nonEmpty then jars.mkString(", ") else tastyFiles.take(3).mkString(", ")
-        logger.error(s"TASTy inspector crash for $target", t)
+        throw new RuntimeException(s"TASTy inspector crash for $target", t)
     } finally
       TastyIndexer.suppressedThreads.set(false)
     collector.result
@@ -173,10 +175,10 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
               traverseTreeChildren(tree)(owner)
           }
         catch {
-          case e: Exception =>
+          case NonFatal(e) =>
             logger.debug(s"traverseTree failed for ${tree.getClass.getSimpleName}: ${e.getMessage}")
             try traverseTreeChildren(tree)(owner)
-            catch { case _: Exception => () }
+            catch { case NonFatal(_) => () }
         }
     }
 
@@ -185,7 +187,7 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
         logger.debug(s"Processing tasty: ${tasty.path}")
         indexTraverser.traverseTree(tasty.ast)(tasty.ast.symbol)
       } catch {
-        case e: Exception => logger.error(s"Failed to process tasty ${tasty.path}: ${e.getMessage}", e)
+        case NonFatal(e) => logger.error(s"Failed to process tasty ${tasty.path}: ${e.getMessage}", e)
       }
     }
     logger.info(
@@ -256,7 +258,7 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
           sym.allOverriddenSymbols.foreach { overridden =>
             loc.foreach(l => addReference(uri, SymbolReference(mkSymbolId(overridden), l, ReferenceKind.Override)))
           }
-        catch { case e: Exception => () }
+        catch { case NonFatal(_) => () }
       }
     }
 
@@ -331,15 +333,13 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
             addReference(uri, SymbolReference(refId, loc, ReferenceKind.Call))
           }
         }
-      } catch { case e: Exception => () }
+      } catch { case NonFatal(_) => () }
 
     def mkSymbolId(sym: Symbol): SymbolId =
       SymbolId(
         try sym.fullName
         catch {
-          case e: Exception =>
-            // logger.debug(s"mkSymbolId: fullName failed for ${sym.name}: ${e.getMessage}")
-            sym.name
+          case NonFatal(_) => sym.name
         }
       )
 
@@ -349,33 +349,16 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
         if pos.isDefined then {
           val path = pos.get.sourceFile.path
           if path != null then Some(java.nio.file.Path.of(path).toSourceUri)
-          else {
-            // logger.debug(s"sourceFileUri: null path for symbol ${sym.name}")
-            None
-          }
-        } else {
-          // logger.debug(s"sourceFileUri: no position for symbol ${sym.name}")
-          None
-        }
-      } catch {
-        case e: Exception =>
-          // logger.debug(s"sourceFileUri: exception for symbol ${sym.name}: ${e.getMessage}")
-          None
-      }
+          else None
+        } else None
+      } catch { case NonFatal(_) => None }
 
     def posSourceUri(pos: Position): Option[SourceUri] =
       try {
         val path = pos.sourceFile.path
         if path != null then Some(java.nio.file.Path.of(path).toSourceUri)
-        else {
-          // logger.debug(s"posSourceUri: null path")
-          None
-        }
-      } catch {
-        case e: Exception =>
-          // logger.debug(s"posSourceUri: exception: ${e.getMessage}")
-          None
-      }
+        else None
+      } catch { case NonFatal(_) => None }
 
     def symbolLocation(sym: Symbol, uri: SourceUri): Option[Location] =
       try {
@@ -383,15 +366,8 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
         if pos.isDefined then {
           val p = pos.get
           Some(Location(uri, p.startLine, p.startColumn, p.endLine, p.endColumn))
-        } else {
-          // logger.debug(s"symbolLocation: no position for ${sym.name}")
-          None
-        }
-      } catch {
-        case e: Exception =>
-          // logger.debug(s"symbolLocation: exception for ${sym.name}: ${e.getMessage}")
-          None
-      }
+        } else None
+      } catch { case NonFatal(_) => None }
 
     def classKind(sym: Symbol): SymbolKind = {
       val flags = sym.flags
@@ -420,17 +396,9 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
             val typeSym = tpe.typeSymbol
             if typeSym.fullName == "java.lang.Object" || typeSym.fullName == "scala.Any" then None
             else Some(mkSymbolId(typeSym))
-          } catch {
-            case e: Exception =>
-              // logger.debug(s"extractParents: failed for parent of ${cd.symbol.name}: ${e.getMessage}")
-              None
-          }
+          } catch { case NonFatal(_) => None }
         }
-      catch {
-        case e: Exception =>
-          // logger.debug(s"extractParents: failed for ${cd.symbol.name}: ${e.getMessage}")
-          Nil
-      }
+      catch { case NonFatal(_) => Nil }
 
     def shouldSkipSymbol(sym: Symbol): Boolean =
       try {
@@ -438,19 +406,11 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
         val name  = sym.name
         flags.is(Flags.Synthetic) || flags.is(Flags.Artifact) ||
         name.contains("$anon") || name.contains("$evidence") || name.startsWith("$")
-      } catch {
-        case e: Exception =>
-          // logger.debug(s"shouldSkipSymbol: exception for symbol: ${e.getMessage}")
-          true
-      }
+      } catch { case NonFatal(_) => true }
 
     def tryOpt[A](a: => A): Option[A] =
       try Some(a)
-      catch {
-        case e: Exception =>
-          // logger.debug(s"tryOpt failed: ${e.getMessage}")
-          None
-      }
+      catch { case NonFatal(_) => None }
   }
 
   private def addSymbol(uri: SourceUri, sym: IndexedSymbol): Unit =
