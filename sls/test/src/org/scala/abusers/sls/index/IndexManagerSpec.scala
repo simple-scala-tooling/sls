@@ -329,4 +329,5 @@ object IndexManagerSpec extends SimpleIOSuite {
       found <- di.getSymbolsByName("NoSrc")
     } yield expect(found.exists(_.origin.isInstanceOf[SymbolOrigin.DependencyClassfile]))
   }
+
 }

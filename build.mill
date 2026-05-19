@@ -99,6 +99,8 @@ object sls extends CommonScalaModule {
     mvn"io.get-coursier:interface:1.0.28",
     mvn"org.scala-lang::scala3-tasty-inspector:3.8.1",
     mvn"org.ow2.asm:asm:9.6",
+    mvn"com.github.plokhotnyuk.jsoniter-scala::jsoniter-scala-core:2.30.5",
+    mvn"com.github.plokhotnyuk.jsoniter-scala::jsoniter-scala-macros:2.30.5",
   )
 
   def javacOptions = Seq(

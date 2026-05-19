@@ -22,6 +22,7 @@ case class IndexManager(
     projectIndex: ProjectIndex,
     dependencyIndex: DependencyIndex,
     bytecodeIndexer: BytecodeIndexer,
+    depIndexCache: DepIndexCache = DepIndexCache.default,
 ) {
   private val logger        = LoggerFactory.getLogger(this.getClass)
   private val coursierCache = Cache.create()
@@ -128,16 +129,32 @@ case class IndexManager(
     def indexViaBytecode: IO[Unit] =
       bytecodeIndexer.indexJar(jarPath).flatMap(dependencyIndex.addJar(jar, _))
 
+    def runIndexer(sourcesJar: AbsolutePath, cp: List[AbsolutePath]): IO[List[IndexedSymbol]] =
+      JavaIndexer
+        .forDependency(jar)
+        .indexJarEntries(sourcesJar, cp)
+        .map(_.values.flatMap(_._1).toList)
+
+    def publish(symbols: List[IndexedSymbol]): IO[Boolean] =
+      if symbols.isEmpty then IO.pure(false)
+      else dependencyIndex.addJar(jar, symbols).as(true)
+
     def indexViaJavaSources(sourcesJar: AbsolutePath): IO[Boolean] =
-      resolveLibClasspath(jarPath, fallback = classpath).flatMap { cp =>
-        JavaIndexer
-          .forDependency(jar)
-          .indexJarEntries(sourcesJar, cp)
-          .flatMap { results =>
-            val symbols = results.values.flatMap(_._1).toList
-            if symbols.isEmpty then IO.pure(false)
-            else dependencyIndex.addJar(jar, symbols).as(true)
+      resolveHermeticLibCp(jarPath).flatMap {
+        case Some(hermeticCp) =>
+          depIndexCache.hashJar(sourcesJar.toNioPath).flatMap { sha =>
+            depIndexCache.lookup(sha).flatMap {
+              case Some(cached) =>
+                logger.info(s"Dep index cache hit for $jar (sha=$sha, ${cached.size} symbols)")
+                publish(cached)
+              case None =>
+                runIndexer(sourcesJar, hermeticCp)
+                  .flatTap(depIndexCache.store(sha, _))
+                  .flatMap(publish)
+            }
           }
+        case None =>
+          runIndexer(sourcesJar, classpath).flatMap(publish)
       }
 
     (for {
@@ -175,22 +192,19 @@ case class IndexManager(
     } yield ()).handleError(e => logger.error(s"Failed to index JAR $jar", e))
   }
 
-  /** Resolve the jar's own transitive Maven dependencies (via coursier) and use those as the classpath when typing its
-    * sources. Hermetic per-jar — indexing is stable across projects, which makes a future on-disk cache valid. Falls
-    * back to `fallback` if the jar lacks `pom.properties` or coursier fails to resolve.
+  /** Resolve the jar's own transitive Maven dependencies via coursier. Returns `Some(cp)` only when the jar carries
+    * `pom.properties` AND coursier resolves successfully — i.e. the typing classpath is hermetic (a function of the
+    * jar alone). Returns `None` otherwise, signaling the caller to use the project classpath and skip caching.
     */
-  private def resolveLibClasspath(
-      jarPath: AbsolutePath,
-      fallback: List[AbsolutePath],
-  ): IO[List[AbsolutePath]] =
+  private def resolveHermeticLibCp(jarPath: AbsolutePath): IO[Option[List[AbsolutePath]]] =
     IO.blocking(JarMavenCoordinates.read(jarPath)).flatMap {
       case None =>
-        IO(logger.debug(s"No Maven coordinates in $jarPath, using fallback classpath")).as(fallback)
+        IO(logger.debug(s"No Maven coordinates in $jarPath, will use project classpath (no cache)")).as(None)
       case Some(coords) =>
         IO.blocking {
           // TODO: only Maven Central is consulted. Projects pulling deps from snapshot or private repos will fail
-          // resolution and fall through to the project-CP fallback. Thread the project's repository list through
-          // here via `.withRepositories(...)` when we have access to it.
+          // resolution and fall through to the project-CP path (also bypassing the cache). Thread the project's
+          // repository list through here via `.withRepositories(...)` when we have access to it.
           Fetch
             .create()
             .withCache(coursierCache)
@@ -199,9 +213,11 @@ case class IndexManager(
             .asScala
             .map(f => AbsolutePath(f.toPath))
             .toList
-        }.handleErrorWith { e =>
-          IO(logger.warn(s"Coursier resolution failed for $coords ($jarPath), using fallback classpath", e))
-            .as(fallback)
+        }.attempt.flatMap {
+          case Right(cp) => IO.pure(Some(cp))
+          case Left(e)   =>
+            IO(logger.warn(s"Coursier resolution failed for $coords ($jarPath), will use project classpath", e))
+              .as(None)
         }
     }
 
@@ -228,10 +244,3 @@ case class IndexManager(
     java.nio.file.Files.walk(dir.toNioPath).anyMatch(p => p.toString.endsWith(".tasty"))
 }
 
-object IndexManager {
-  def apply(
-      projectIndex: ProjectIndex,
-      dependencyIndex: DependencyIndex,
-      bytecodeIndexer: BytecodeIndexer,
-  ): IndexManager = new IndexManager(projectIndex, dependencyIndex, bytecodeIndexer)
-}
