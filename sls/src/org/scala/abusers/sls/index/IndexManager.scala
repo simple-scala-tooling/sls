@@ -28,18 +28,33 @@ case class IndexManager(
   private val coursierCache = Cache.create()
 
   def indexDependencies(targets: Set[ScalaBuildTargetInformation]): IO[Unit] = {
-    val projectDirs  = targets.flatMap(t => Set(t.classesDir, t.classJarPath))
-    val allClasspath = targets.flatMap(_.classpath).toList.distinct
-    val depJars      = allClasspath
-      .filter { p =>
-        p.toNioPath.toString.endsWith(".jar") && !projectDirs.contains(p)
+    val projectDirs = targets.flatMap(t => Set(t.classesDir, t.classJarPath))
+
+    // Each target's classpath is internally consistent (built by the build tool). The union across
+    // targets typically isn't — e.g. a Mill project can carry both scala3-library_3-3.7.4 (Mill's own
+    // runtime) and 3.8.x (user code) — and feeding a mixed classpath to dotc's TASTy unpickler makes
+    // it resolve a symbol against one stdlib while the TASTy was pickled against another, producing
+    // stub denotations and assertion failures in erasure. So we pick one target per jar and use that
+    // target's classpath. Any target containing the jar will do, since each is self-consistent.
+    val jarToCp = {
+      val m = scala.collection.mutable.LinkedHashMap.empty[AbsolutePath, List[AbsolutePath]]
+      for {
+        target <- targets
+        jar    <- target.classpath
+      } {
+        val isDep =
+          jar.toNioPath.toString.endsWith(".jar") &&
+            !projectDirs.contains(jar) &&
+            jar.exists
+        if isDep && !m.contains(jar) then m(jar) = target.classpath
       }
-      .filter(_.exists)
+      m.toList
+    }
 
     val concurrency = Runtime.getRuntime.availableProcessors()
     fs2.Stream
-      .emits(depJars)
-      .parEvalMapUnordered(concurrency)(jar => indexJarSafely(jar, allClasspath))
+      .emits(jarToCp)
+      .parEvalMapUnordered(concurrency) { case (jar, cp) => indexJarSafely(jar, cp) }
       .compile
       .drain
   }
@@ -198,14 +213,25 @@ case class IndexManager(
       _        <-
         if hasTasty then {
           val indexer = TastyIndexer("dependency")
-          indexer
-            .indexJar(jarPath, classpath)
-            .flatMap { results =>
-              val symbols = results.values.flatMap(_._1).toList
-              dependencyIndex.addJar(jar, symbols)
+          // Type-check the jar's TASTy against the classpath it was *pickled against*, not the
+          // project's runtime classpath. They are usually different: build tools resolve version
+          // conflicts to the newest version, so the project pulls (say) lib Y 1.1 while jar X's
+          // TASTy was pickled against Y 1.0. Reading X's TASTy with Y 1.1 on the classpath doesn't
+          // crash (1.1 is a superset), but overload resolution / inherited-member iteration /
+          // implicit search all happen at TASTy-read time against the 1.1 view — so the indexed
+          // references silently drift to symbols X's author never intended. Coursier resolves the
+          // jar's POM to reconstruct the original compile-time view. Falls back to the project
+          // classpath when the jar has no Maven coords (e.g. Mill-internal jars).
+          resolveHermeticLibCp(jarPath)
+            .map(_.getOrElse(classpath))
+            .flatMap { cp =>
+              indexer.indexJar(jarPath, cp).flatMap { results =>
+                val symbols = results.values.flatMap(_._1).toList
+                dependencyIndex.addJar(jar, symbols)
+              }
             }
             .handleErrorWith { e =>
-              logger.error(s"TASTy indexing failed for $jar, falling back to bytecode", e)
+              logger.warn(s"TASTy indexing failed for $jar, falling back to bytecode: ${e.getMessage}")
               indexViaBytecode
             }
         } else
