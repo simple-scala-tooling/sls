@@ -129,34 +129,33 @@ class BspStateManager(
     yield inverseSources.targets
 
   private def isSyntheticTarget(target: bsp.BuildTarget): Boolean =
-    target.id.uri.value.contains("mill-synthetic-root-target")
+    target.id.uri.value.contains("mill-synthetic-root-target") ||
+      // Mill creates per-file synthetic Java modules for files Metals extracted into
+      // `.metals/readonly/dependencies/`. They leak into workspaceBuildTargets but are not
+      // part of the real build — drop them so we don't try to treat dep sources as targets.
+      target.id.uri.value.contains("/.metals/readonly/")
 
   private def buildTargetToScalaTargets(
       targets0: bsp.WorkspaceBuildTargetsResult,
       scalacOptions: bsp.scala_.ScalacOptionsResult,
       sources: bsp.SourcesResult,
   ): Set[ScalaBuildTargetInformation] = {
-    val targets                            = targets0.targets.filterNot(isSyntheticTarget)
-    val scalacOptions0                     = scalacOptions.items.map(item => item.target -> item).toMap
-    val sources0                           = sources.items.map(item => item.target -> item).toMap
-    val (mismatchedTargets, zippedTargets) = targets.partitionMap { target =>
-      (scalacOptions0.get(target.id), sources0.get(target.id)) match {
-        case (Some(scalacOptionsItem), Some(sources)) if target.project.scala.isDefined =>
-          Right(
+    val targets        = targets0.targets.filterNot(isSyntheticTarget)
+    val scalacOptions0 = scalacOptions.items.map(item => item.target -> item).toMap
+    val sources0       = sources.items.map(item => item.target -> item).toMap
+    targets.iterator.flatMap { target =>
+      (target.project.scala, scalacOptions0.get(target.id), sources0.get(target.id)) match {
+        case (Some(scalaTarget), Some(scalacOptionsItem), Some(sources)) =>
+          Some(
             ScalaBuildTargetInformation(
               scalacOptions = scalacOptionsItem,
-              buildTarget = target.project.scala.get,
+              buildTarget = scalaTarget,
               sources = sources,
             )
           )
-        case _ => Left(target.id)
+        case _ => None
       }
-    }
-
-    if mismatchedTargets.nonEmpty then throw new IllegalStateException(
-      s"Mismatched targets to ScalacOptionsResult probably caused due to existance of java scopes. ${mismatchedTargets.mkString(", ")}"
-    )
-    else zippedTargets.toSet
+    }.toSet
   }
 
   /** didOpen / didChange is always a first request in sequence e.g didChange -> completion -> semanticTokens
@@ -178,9 +177,14 @@ class BspStateManager(
         possibleIds <- buildTargetInverseSources(uri)
         targets0    <- targets.get
         possibleBuildTargets = possibleIds.flatMap(id => targets0.find(_.buildTarget.id == id))
-        bestBuildTarget      = possibleBuildTargets.maxBy(_.buildTarget.project.scala.map(_.data.scalaVersion))
-        _ <- client.logDebug(s"Best build target for $uri is ${bestBuildTarget.toString}")
-      } yield state.updated(uri, bestBuildTarget)
+        newState <- possibleBuildTargets match {
+          case Nil =>
+            client.logDebug(s"No Scala build target found for $uri; skipping").as(state)
+          case nonEmpty =>
+            val best = nonEmpty.maxBy(_.scalaVersion)
+            client.logDebug(s"Best build target for $uri is ${best.toString}").as(state.updated(uri, best))
+        }
+      } yield newState
     )
   }
 }
