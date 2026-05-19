@@ -43,6 +43,36 @@ case class IndexManager(
       .drain
   }
 
+  /** Index the JDK source archive (`$JAVA_HOME/lib/src.zip`) so completion / hover / find-references work on JDK
+    * types. The src.zip is treated like any other dependency source jar — typed against an empty CP (JDK types only
+    * reference each other) and cached by SHA-256.
+    */
+  def indexJdkSources(): IO[Unit] =
+    IO.blocking(JdkSources.find()).flatMap {
+      case None =>
+        IO(logger.info("No JDK sources found ($JAVA_HOME/lib/src.zip absent), skipping JDK indexing"))
+      case Some(srcZip) =>
+        val jar = srcZip.toNioPath.toString
+        depIndexCache.hashJar(srcZip.toNioPath).flatMap { sha =>
+          depIndexCache.lookup(sha).flatMap {
+            case Some(cached) =>
+              IO(logger.info(s"JDK sources cache hit ($jar, ${cached.size} symbols)")) *>
+                dependencyIndex.addJar(jar, cached)
+            case None =>
+              IO(logger.info(s"Indexing JDK sources from $jar — this may take a moment")) *>
+                JavaIndexer
+                  .forDependency(jar)
+                  .indexJarEntries(srcZip, Nil)
+                  .flatMap { results =>
+                    val symbols = results.values.flatMap(_._1).toList
+                    IO(logger.info(s"JDK sources indexed: ${symbols.size} symbols, caching")) *>
+                      depIndexCache.store(sha, symbols) *>
+                      dependencyIndex.addJar(jar, symbols)
+                  }
+          }
+        }
+    }.handleError(e => logger.error("JDK source indexing failed", e))
+
   def indexExistingProjectArtifacts(targets: Set[ScalaBuildTargetInformation]): IO[Unit] =
     IO.parSequenceN(4) {
       targets.toList.map { target =>

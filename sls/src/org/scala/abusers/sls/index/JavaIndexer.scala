@@ -63,7 +63,13 @@ class JavaIndexer(originFor: SourceUri => SymbolOrigin) {
               .walk(root)
               .iterator
               .asScala
-              .filter(p => !Files.isDirectory(p) && p.toString.endsWith(".java"))
+              .filter { p =>
+                !Files.isDirectory(p) &&
+                p.toString.endsWith(".java") &&
+                // module-info.java uses module declaration syntax that dotc's JavaParser can't parse, and it
+                // contributes no symbols worth indexing.
+                p.getFileName.toString != "module-info.java"
+              }
               .toList
           }
           if sources.nonEmpty then {

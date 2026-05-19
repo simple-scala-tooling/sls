@@ -5,7 +5,10 @@ import org.scala.abusers.sls.AbsolutePath
 import org.scala.abusers.sls.SourceUri
 import weaver.*
 
+import java.io.FileOutputStream
 import java.nio.file.Paths
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 object JavaIndexerSpec extends SimpleIOSuite {
 
@@ -93,5 +96,41 @@ object JavaIndexerSpec extends SimpleIOSuite {
       // method parameters can be Param and skipped; check the class/method/field-level symbols
       named = syms.filter(s => Set[SymbolKind](SymbolKind.Class, SymbolKind.Trait, SymbolKind.Method, SymbolKind.Field, SymbolKind.Constructor).contains(s.kind))
     } yield expect(named.forall(_.location.isDefined))
+  }
+
+  test("indexJarEntries indexes regular .java files and skips module-info.java (JDK src.zip shape)") {
+    // Simulate JDK src.zip layout: module-prefixed paths + module-info.java per module. The indexer should ignore
+    // module-info.java (dotc's JavaParser can't parse module declarations) while still indexing real sources.
+    val regular = "java.base/java/lang/FakeClass.java" ->
+      """package java.lang;
+        |public class FakeClass {
+        |    public String name;
+        |}
+        |""".stripMargin.getBytes("UTF-8")
+    val moduleInfo = "java.base/module-info.java" ->
+      """module java.base {
+        |    exports java.lang;
+        |}
+        |""".stripMargin.getBytes("UTF-8")
+
+    IO.blocking {
+      val tmp     = os.temp.dir(prefix = "src-zip-shape-test")
+      val zipPath = tmp / "src.zip"
+      val zos     = new ZipOutputStream(new FileOutputStream(zipPath.toIO))
+      try
+        List(regular, moduleInfo).foreach { case (name, bytes) =>
+          zos.putNextEntry(new ZipEntry(name))
+          zos.write(bytes)
+          zos.closeEntry()
+        }
+      finally zos.close()
+      AbsolutePath(zipPath.toNIO)
+    }.flatMap { zip =>
+      JavaIndexer.forDependency(zip.toNioPath.toString).indexJarEntries(zip, Nil).map { results =>
+        val syms = results.values.flatMap(_._1).toList
+        expect(syms.exists(_.id.value == "java.lang.FakeClass")) and
+          expect(!syms.exists(_.id.value.contains("module-info")))
+      }
+    }
   }
 }

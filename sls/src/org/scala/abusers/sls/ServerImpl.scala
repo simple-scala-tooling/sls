@@ -97,7 +97,8 @@ class ServerImpl(
       for {
         _       <- bspStateManager.importBuild
         targets <- bspStateManager.getAllTargets
-        _       <- (indexManager.indexDependencies(targets) *>
+        _       <- (indexManager.indexJdkSources() *>
+          indexManager.indexDependencies(targets) *>
           indexManager.indexExistingProjectArtifacts(targets)).handleErrorWith { e =>
           IO(logger.error("Background indexing failed", e)) *>
             lspClient.logMessage(s"Indexing failed: ${e.getMessage}")
