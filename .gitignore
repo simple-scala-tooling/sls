@@ -16,3 +16,5 @@ langoustine-tracer
 .idea
 .vscode
 .direnv
+.claude/settings.local.json
+.mcp.json

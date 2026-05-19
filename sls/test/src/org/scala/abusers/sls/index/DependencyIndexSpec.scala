@@ -1,6 +1,5 @@
 package org.scala.abusers.sls.index
 
-import cats.effect.IO
 import org.scala.abusers.sls.SourceUri
 import weaver.*
 
