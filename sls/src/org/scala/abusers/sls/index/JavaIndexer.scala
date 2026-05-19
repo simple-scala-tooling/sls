@@ -5,20 +5,29 @@ import dotty.tools.dotc.ast.tpd
 import dotty.tools.dotc.core.Contexts.Context
 import dotty.tools.dotc.core.Flags
 import dotty.tools.dotc.core.Symbols.Symbol
+import dotty.tools.dotc.util.SourceFile
 import dotty.tools.dotc.util.SourcePosition
 import dotty.tools.dotc.CompilationUnit
+import dotty.tools.io.AbstractFile
 import org.scala.abusers.sls.toSourceUri
 import org.scala.abusers.sls.AbsolutePath
 import org.scala.abusers.sls.SourceUri
 import org.slf4j.LoggerFactory
 
+import java.nio.file.FileSystems
+import java.nio.file.Files
 import scala.collection.mutable
+import scala.io.Codec
+import scala.jdk.CollectionConverters.*
+import scala.util.Using
 
 /** Indexes `.java` source files by running them through [[JavaFrontendDriver]] (Parser → TyperPhase) and harvesting the
   * resulting class/method/field symbols. Java parsing only produces outlines (no method bodies), so references are
   * limited to `extends`/`implements` relationships.
+  *
+  * `originFor` decides how each emitted symbol is tagged — project Java source vs. dependency source jar.
   */
-class JavaIndexer(buildTarget: String) {
+class JavaIndexer(originFor: SourceUri => SymbolOrigin) {
   private val logger = LoggerFactory.getLogger(this.getClass)
 
   def indexFiles(
@@ -26,7 +35,7 @@ class JavaIndexer(buildTarget: String) {
       classpath: List[AbsolutePath],
   ): IO[Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])]] =
     IO.blocking {
-      val collector = new JavaSymbolCollector(buildTarget)
+      val collector = new JavaSymbolCollector(originFor)
       try
         JavaFrontendDriver
           .inspect(javaFiles.map(_.toNioPath.toString), classpath.map(_.toNioPath.toString))(collector)
@@ -36,13 +45,49 @@ class JavaIndexer(buildTarget: String) {
       }
       collector.result
     }
+
+  /** Index all `.java` entries inside `jarPath` without extracting them — opens a zip [[java.nio.file.FileSystem]]
+    * over the jar and feeds dotc [[SourceFile]]s backed by `ZipPath`s. The FileSystem stays open until the inspector
+    * finishes.
+    */
+  def indexJarEntries(
+      jarPath: AbsolutePath,
+      classpath: List[AbsolutePath],
+  ): IO[Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])]] =
+    IO.blocking {
+      val collector = new JavaSymbolCollector(originFor)
+      try
+        Using.resource(FileSystems.newFileSystem(jarPath.toNioPath, null: ClassLoader)) { fs =>
+          val sources = fs.getRootDirectories.asScala.toList.flatMap { root =>
+            Files
+              .walk(root)
+              .iterator
+              .asScala
+              .filter(p => !Files.isDirectory(p) && p.toString.endsWith(".java"))
+              .toList
+          }
+          if sources.nonEmpty then {
+            val sourceFiles = sources.map(p => SourceFile(AbstractFile.getFile(p), Codec.UTF8))
+            JavaFrontendDriver.inspectSources(sourceFiles, classpath.map(_.toNioPath.toString))(collector)
+          }
+        }
+      catch {
+        case t: Throwable =>
+          logger.error(s"Java indexer crash for $jarPath", t)
+      }
+      collector.result
+    }
 }
 
 object JavaIndexer {
-  def apply(buildTarget: String): JavaIndexer = new JavaIndexer(buildTarget)
+  def forProject(buildTarget: String): JavaIndexer =
+    new JavaIndexer(uri => SymbolOrigin.ProjectJavaSource(buildTarget, uri))
+
+  def forDependency(jarPath: String): JavaIndexer =
+    new JavaIndexer(uri => SymbolOrigin.DependencySource(jarPath, uri))
 }
 
-private class JavaSymbolCollector(buildTarget: String) extends JavaInspector {
+private class JavaSymbolCollector(originFor: SourceUri => SymbolOrigin) extends JavaInspector {
   import tpd.TreeOps
 
   private val symbols    = mutable.Map.empty[SourceUri, mutable.ListBuffer[IndexedSymbol]]
@@ -102,7 +147,7 @@ private class JavaSymbolCollector(buildTarget: String) extends JavaInspector {
           visibility = visibility(sym),
           owner = ownerId(sym),
           location = symbolLocation(sym, uri),
-          origin = SymbolOrigin.ProjectJavaSource(buildTarget, uri),
+          origin = originFor(uri),
           parents = parentIds,
           typeSignature = Some(sym.fullName.toString),
         ),
@@ -126,7 +171,7 @@ private class JavaSymbolCollector(buildTarget: String) extends JavaInspector {
           visibility = visibility(sym),
           owner = ownerId(sym),
           location = symbolLocation(sym, uri),
-          origin = SymbolOrigin.ProjectJavaSource(buildTarget, uri),
+          origin = originFor(uri),
           parents = Nil,
           typeSignature = Some(sym.info.show),
         ),
@@ -146,7 +191,7 @@ private class JavaSymbolCollector(buildTarget: String) extends JavaInspector {
           visibility = visibility(sym),
           owner = ownerId(sym),
           location = symbolLocation(sym, uri),
-          origin = SymbolOrigin.ProjectJavaSource(buildTarget, uri),
+          origin = originFor(uri),
           parents = Nil,
           typeSignature = Some(sym.info.show),
         ),

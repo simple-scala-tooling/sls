@@ -18,7 +18,7 @@ object JavaIndexerSpec extends SimpleIOSuite {
   private val sources = List("Greeter.java", "Shapes.java", "Square.java").map(resourceAbs)
 
   private val indexed: IO[Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])]] =
-    JavaIndexer("test-target").indexFiles(sources, Nil).memoize.flatten
+    JavaIndexer.forProject("test-target").indexFiles(sources, Nil).memoize.flatten
 
   private def allSymbols: IO[List[IndexedSymbol]] = indexed.map(_.values.flatMap(_._1).toList)
   private def allRefs: IO[List[SymbolReference]]  = indexed.map(_.values.flatMap(_._2).toList)
@@ -73,6 +73,18 @@ object JavaIndexerSpec extends SimpleIOSuite {
     for {
       syms <- allSymbols
     } yield expect(syms.nonEmpty) and expect(syms.forall(_.origin.isInstanceOf[SymbolOrigin.ProjectJavaSource]))
+  }
+
+  test("forDependency tags origin as DependencySource with jarPath") {
+    val jar = "/some/path/foo-1.0.0-sources.jar"
+    for {
+      results <- JavaIndexer.forDependency(jar).indexFiles(sources, Nil)
+      syms = results.values.flatMap(_._1).toList
+    } yield expect(syms.nonEmpty) and
+      expect(syms.forall(_.origin match {
+        case SymbolOrigin.DependencySource(j, _) => j == jar
+        case _                                   => false
+      }))
   }
 
   test("symbols have locations") {

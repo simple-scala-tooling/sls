@@ -461,8 +461,10 @@ class ServerImpl(
       kind = s.kind.toString,
       owner = s.owner.map(_.value),
       origin = Some(s.origin match {
-        case index.SymbolOrigin.ProjectTasty(bt, uri)    => s"project:$bt ($uri)"
-        case index.SymbolOrigin.DependencyClassfile(jar) => s"dep:$jar"
+        case index.SymbolOrigin.ProjectTasty(bt, uri)        => s"project:$bt ($uri)"
+        case index.SymbolOrigin.ProjectJavaSource(bt, uri)   => s"project-java:$bt ($uri)"
+        case index.SymbolOrigin.DependencyClassfile(jar)     => s"dep:$jar"
+        case index.SymbolOrigin.DependencySource(jar, uri)   => s"dep-src:$jar ($uri)"
       }),
       location = s.location.map(l => s"${l.uri}:${l.startLine}:${l.startCol}"),
     )

@@ -64,6 +64,7 @@ enum SymbolOrigin {
   case ProjectTasty(buildTarget: String, sourceFile: SourceUri)
   case ProjectJavaSource(buildTarget: String, sourceFile: SourceUri)
   case DependencyClassfile(jarPath: String)
+  case DependencySource(jarPath: String, sourceFile: SourceUri)
 }
 
 case class IndexedSymbol(

@@ -117,10 +117,20 @@ case class IndexManager(
     }
   }
 
-  private def indexJarSafely(jarPath: AbsolutePath, classpath: List[AbsolutePath]): IO[Unit] = {
+  private[index] def indexJarSafely(jarPath: AbsolutePath, classpath: List[AbsolutePath]): IO[Unit] = {
     val jar                        = jarPath.toNioPath.toString
     def indexViaBytecode: IO[Unit] =
       bytecodeIndexer.indexJar(jarPath).flatMap(dependencyIndex.addJar(jar, _))
+
+    def indexViaJavaSources(sourcesJar: AbsolutePath): IO[Boolean] =
+      JavaIndexer
+        .forDependency(jar)
+        .indexJarEntries(sourcesJar, classpath)
+        .flatMap { results =>
+          val symbols = results.values.flatMap(_._1).toList
+          if symbols.isEmpty then IO.pure(false)
+          else dependencyIndex.addJar(jar, symbols).as(true)
+        }
 
     (for {
       hasTasty <- jarContainsTasty(jarPath)
@@ -138,8 +148,31 @@ case class IndexManager(
               indexViaBytecode
             }
         } else
-          indexViaBytecode
+          findSourcesJar(jarPath) match {
+            case Some(sj) =>
+              indexViaJavaSources(sj)
+                .handleErrorWith { e =>
+                  logger.error(s"Java source indexing failed for $jar (sources: $sj), falling back to bytecode", e)
+                  IO.pure(false)
+                }
+                .flatMap { indexed =>
+                  if indexed then IO.unit
+                  else {
+                    logger.info(s"Java source indexing produced nothing for $jar, falling back to bytecode")
+                    indexViaBytecode
+                  }
+                }
+            case None => indexViaBytecode
+          }
     } yield ()).handleError(e => logger.error(s"Failed to index JAR $jar", e))
+  }
+
+  private def findSourcesJar(jarPath: AbsolutePath): Option[AbsolutePath] = {
+    val nio        = jarPath.toNioPath
+    val fileName   = nio.getFileName.toString
+    val sourcesArt = fileName.stripSuffix(".jar") + "-sources.jar"
+    val sibling    = nio.resolveSibling(sourcesArt)
+    if java.nio.file.Files.exists(sibling) then Some(AbsolutePath(sibling)) else None
   }
 
   private def jarContainsTasty(jarPath: AbsolutePath): IO[Boolean] =
