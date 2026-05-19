@@ -1,6 +1,7 @@
 package org.scala.abusers.sls.index
 
 import cats.effect.IO
+import cats.effect.Resource
 import dotty.tools.dotc.ast.tpd
 import dotty.tools.dotc.core.Contexts.Context
 import dotty.tools.dotc.core.Flags
@@ -16,10 +17,10 @@ import org.slf4j.LoggerFactory
 
 import java.nio.file.FileSystems
 import java.nio.file.Files
+import java.nio.file.Path
 import scala.collection.mutable
 import scala.io.Codec
 import scala.jdk.CollectionConverters.*
-import scala.util.Using
 
 /** Indexes `.java` source files by running them through [[JavaFrontendDriver]] (Parser → TyperPhase) and harvesting the
   * resulting class/method/field symbols. Java parsing only produces outlines (no method bodies), so references are
@@ -47,18 +48,25 @@ class JavaIndexer(originFor: SourceUri => SymbolOrigin) {
     }
 
   /** Index all `.java` entries inside `jarPath` without extracting them — opens a zip [[java.nio.file.FileSystem]]
-    * over the jar and feeds dotc [[SourceFile]]s backed by `ZipPath`s. The FileSystem stays open until the inspector
-    * finishes.
+    * over the jar and feeds dotc [[SourceFile]]s backed by `ZipPath`s. When `parallelism > 1`, partitions entries by
+    * their top-level path component (e.g. JDK module name in `src.zip`, or top-level package in a dep jar) and runs
+    * that many dotc instances concurrently. Each instance is independent — dotc's frontend doesn't share mutable
+    * state across `Run` constructions.
+    *
+    * The shared FileSystem stays open across all parallel workers (cats-effect `Resource`), so `ZipPath`s remain
+    * valid in every chunk.
     */
   def indexJarEntries(
       jarPath: AbsolutePath,
       classpath: List[AbsolutePath],
-  ): IO[Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])]] =
-    IO.blocking {
-      val collector = new JavaSymbolCollector(originFor)
-      try
-        Using.resource(FileSystems.newFileSystem(jarPath.toNioPath, null: ClassLoader)) { fs =>
-          val sources = fs.getRootDirectories.asScala.toList.flatMap { root =>
+      parallelism: Int = 1,
+  ): IO[Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])]] = {
+    val cpStrings = classpath.map(_.toNioPath.toString)
+    Resource
+      .fromAutoCloseable(IO.blocking(FileSystems.newFileSystem(jarPath.toNioPath, null: ClassLoader)))
+      .use { fs =>
+        IO.blocking {
+          fs.getRootDirectories.asScala.toList.flatMap { root =>
             Files
               .walk(root)
               .iterator
@@ -72,17 +80,40 @@ class JavaIndexer(originFor: SourceUri => SymbolOrigin) {
               }
               .toList
           }
-          if sources.nonEmpty then {
-            val sourceFiles = sources.map(p => SourceFile(AbstractFile.getFile(p), Codec.UTF8))
-            JavaFrontendDriver.inspectSources(sourceFiles, classpath.map(_.toNioPath.toString))(collector)
+        }.flatMap { entries =>
+          if entries.isEmpty then IO.pure(Map.empty)
+          else if parallelism <= 1 then runChunk(entries, cpStrings, jarPath)
+          else {
+            val chunks = entries.groupBy(topLevelKey).values.toList
+            fs2.Stream
+              .emits(chunks)
+              .parEvalMapUnordered(parallelism)(runChunk(_, cpStrings, jarPath))
+              .compile
+              .toList
+              .map(_.foldLeft(Map.empty)(_ ++ _))
           }
         }
-      catch {
-        case t: Throwable =>
-          logger.error(s"Java indexer crash for $jarPath", t)
       }
-      collector.result
+  }
+
+  private def runChunk(
+      paths: List[Path],
+      cpStrings: List[String],
+      jarPath: AbsolutePath,
+  ): IO[Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])]] = IO.blocking {
+    val collector = new JavaSymbolCollector(originFor)
+    try {
+      val sources = paths.map(p => SourceFile(AbstractFile.getFile(p), Codec.UTF8))
+      JavaFrontendDriver.inspectSources(sources, cpStrings)(collector)
+    } catch {
+      case t: Throwable =>
+        logger.error(s"Java indexer crash for chunk of ${paths.size} entries in $jarPath", t)
     }
+    collector.result
+  }
+
+  private def topLevelKey(p: Path): String =
+    if p.getNameCount > 0 then p.getName(0).toString else ""
 }
 
 object JavaIndexer {
@@ -91,6 +122,9 @@ object JavaIndexer {
 
   def forDependency(jarPath: String): JavaIndexer =
     new JavaIndexer(uri => SymbolOrigin.DependencySource(jarPath, uri))
+
+  def forJdk(srcZipPath: String): JavaIndexer =
+    new JavaIndexer(uri => SymbolOrigin.JdkSource(srcZipPath, uri))
 }
 
 private class JavaSymbolCollector(originFor: SourceUri => SymbolOrigin) extends JavaInspector {

@@ -98,6 +98,41 @@ object JavaIndexerSpec extends SimpleIOSuite {
     } yield expect(named.forall(_.location.isDefined))
   }
 
+  test("indexJarEntries with parallelism>1 produces the same symbols as serial") {
+    // Two top-level dirs ensure the parallel path actually distributes work across chunks.
+    val a = "moduleA/com/a/Alpha.java" -> "package com.a; public class Alpha {}".getBytes("UTF-8")
+    val b = "moduleA/com/a/Beta.java" -> "package com.a; public class Beta {}".getBytes("UTF-8")
+    val c = "moduleB/com/b/Gamma.java" -> "package com.b; public class Gamma {}".getBytes("UTF-8")
+
+    def buildZip: IO[AbsolutePath] = IO.blocking {
+      val tmp = os.temp.dir(prefix = "parallel-jar-test")
+      val zp  = tmp / "src.zip"
+      val zos = new ZipOutputStream(new FileOutputStream(zp.toIO))
+      try
+        List(a, b, c).foreach { case (name, bytes) =>
+          zos.putNextEntry(new ZipEntry(name))
+          zos.write(bytes)
+          zos.closeEntry()
+        }
+      finally zos.close()
+      AbsolutePath(zp.toNIO)
+    }
+
+    for {
+      zip      <- buildZip
+      indexer = JavaIndexer.forDependency(zip.toNioPath.toString)
+      serial   <- indexer.indexJarEntries(zip, Nil, parallelism = 1)
+      parallel <- indexer.indexJarEntries(zip, Nil, parallelism = 4)
+    } yield {
+      val serialSyms   = serial.values.flatMap(_._1).map(_.id.value).toSet
+      val parallelSyms = parallel.values.flatMap(_._1).map(_.id.value).toSet
+      expect(serialSyms == parallelSyms) and
+        expect(parallelSyms.contains("com.a.Alpha")) and
+        expect(parallelSyms.contains("com.a.Beta")) and
+        expect(parallelSyms.contains("com.b.Gamma"))
+    }
+  }
+
   test("indexJarEntries indexes regular .java files and skips module-info.java (JDK src.zip shape)") {
     // Simulate JDK src.zip layout: module-prefixed paths + module-info.java per module. The indexer should ignore
     // module-info.java (dotc's JavaParser can't parse module declarations) while still indexing real sources.

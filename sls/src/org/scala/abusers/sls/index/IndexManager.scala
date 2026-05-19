@@ -36,9 +36,10 @@ case class IndexManager(
       }
       .filter(_.exists)
 
+    val concurrency = Runtime.getRuntime.availableProcessors()
     fs2.Stream
       .emits(depJars)
-      .parEvalMapUnordered(4)(jar => indexJarSafely(jar, allClasspath))
+      .parEvalMapUnordered(concurrency)(jar => indexJarSafely(jar, allClasspath))
       .compile
       .drain
   }
@@ -59,10 +60,11 @@ case class IndexManager(
               IO(logger.info(s"JDK sources cache hit ($jar, ${cached.size} symbols)")) *>
                 dependencyIndex.addJar(jar, cached)
             case None =>
-              IO(logger.info(s"Indexing JDK sources from $jar — this may take a moment")) *>
+              val parallelism = Runtime.getRuntime.availableProcessors()
+              IO(logger.info(s"Indexing JDK sources from $jar (parallelism=$parallelism) — this may take a moment")) *>
                 JavaIndexer
-                  .forDependency(jar)
-                  .indexJarEntries(srcZip, Nil)
+                  .forJdk(jar)
+                  .indexJarEntries(srcZip, Nil, parallelism)
                   .flatMap { results =>
                     val symbols = results.values.flatMap(_._1).toList
                     IO(logger.info(s"JDK sources indexed: ${symbols.size} symbols, caching")) *>
