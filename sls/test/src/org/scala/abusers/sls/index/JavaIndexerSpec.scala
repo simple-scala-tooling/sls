@@ -23,8 +23,8 @@ object JavaIndexerSpec extends SimpleIOSuite {
   private val indexed: IO[Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])]] =
     JavaIndexer.forProject("test-target").indexFiles(sources, Nil).memoize.flatten
 
-  private def allSymbols: IO[List[IndexedSymbol]] = indexed.map(_.values.flatMap(_._1).toList)
-  private def allRefs: IO[List[SymbolReference]]  = indexed.map(_.values.flatMap(_._2).toList)
+  private def allSymbols: IO[List[IndexedSymbol]]                 = indexed.map(_.values.flatMap(_._1).toList)
+  private def allRefs: IO[List[SymbolReference]]                  = indexed.map(_.values.flatMap(_._2).toList)
   private def findSymbol(name: String): IO[Option[IndexedSymbol]] = allSymbols.map(_.find(_.name == name))
 
   test("Java class indexed as Class kind") {
@@ -94,14 +94,17 @@ object JavaIndexerSpec extends SimpleIOSuite {
     for {
       syms <- allSymbols
       // method parameters can be Param and skipped; check the class/method/field-level symbols
-      named = syms.filter(s => Set[SymbolKind](SymbolKind.Class, SymbolKind.Trait, SymbolKind.Method, SymbolKind.Field, SymbolKind.Constructor).contains(s.kind))
+      named = syms.filter(s =>
+        Set[SymbolKind](SymbolKind.Class, SymbolKind.Trait, SymbolKind.Method, SymbolKind.Field, SymbolKind.Constructor)
+          .contains(s.kind)
+      )
     } yield expect(named.forall(_.location.isDefined))
   }
 
   test("indexJarEntries with parallelism>1 produces the same symbols as serial") {
     // Two top-level dirs ensure the parallel path actually distributes work across chunks.
     val a = "moduleA/com/a/Alpha.java" -> "package com.a; public class Alpha {}".getBytes("UTF-8")
-    val b = "moduleA/com/a/Beta.java" -> "package com.a; public class Beta {}".getBytes("UTF-8")
+    val b = "moduleA/com/a/Beta.java"  -> "package com.a; public class Beta {}".getBytes("UTF-8")
     val c = "moduleB/com/b/Gamma.java" -> "package com.b; public class Gamma {}".getBytes("UTF-8")
 
     def buildZip: IO[AbsolutePath] = IO.blocking {
@@ -119,7 +122,7 @@ object JavaIndexerSpec extends SimpleIOSuite {
     }
 
     for {
-      zip      <- buildZip
+      zip <- buildZip
       indexer = JavaIndexer.forDependency(zip.toNioPath.toString)
       serial   <- indexer.indexJarEntries(zip, Nil, parallelism = 1)
       parallel <- indexer.indexJarEntries(zip, Nil, parallelism = 4)

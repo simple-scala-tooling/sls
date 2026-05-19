@@ -303,8 +303,8 @@ object IndexManagerSpec extends SimpleIOSuite {
         sourceEntries = List("com/example/Widget.java" -> javaSource),
       )
       (mainJar, _) = jars
-      pi    <- ProjectIndex.empty
-      di    <- DependencyIndex.empty
+      pi <- ProjectIndex.empty
+      di <- DependencyIndex.empty
       mgr = IndexManager(pi, di, bytecodeIndexer)
       _     <- mgr.indexJarSafely(mainJar, Nil)
       found <- di.getSymbolsByName("compute")

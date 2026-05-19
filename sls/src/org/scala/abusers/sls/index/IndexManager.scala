@@ -44,36 +44,40 @@ case class IndexManager(
       .drain
   }
 
-  /** Index the JDK source archive (`$JAVA_HOME/lib/src.zip`) so completion / hover / find-references work on JDK
-    * types. The src.zip is treated like any other dependency source jar — typed against an empty CP (JDK types only
-    * reference each other) and cached by SHA-256.
+  /** Index the JDK source archive (`$JAVA_HOME/lib/src.zip`) so completion / hover / find-references work on JDK types.
+    * The src.zip is treated like any other dependency source jar — typed against an empty CP (JDK types only reference
+    * each other) and cached by SHA-256.
     */
   def indexJdkSources(): IO[Unit] =
-    IO.blocking(JdkSources.find()).flatMap {
-      case None =>
-        IO(logger.info("No JDK sources found ($JAVA_HOME/lib/src.zip absent), skipping JDK indexing"))
-      case Some(srcZip) =>
-        val jar = srcZip.toNioPath.toString
-        depIndexCache.hashJar(srcZip.toNioPath).flatMap { sha =>
-          depIndexCache.lookup(sha).flatMap {
-            case Some(cached) =>
-              IO(logger.info(s"JDK sources cache hit ($jar, ${cached.size} symbols)")) *>
-                dependencyIndex.addJar(jar, cached)
-            case None =>
-              val parallelism = Runtime.getRuntime.availableProcessors()
-              IO(logger.info(s"Indexing JDK sources from $jar (parallelism=$parallelism) — this may take a moment")) *>
-                JavaIndexer
-                  .forJdk(jar)
-                  .indexJarEntries(srcZip, Nil, parallelism)
-                  .flatMap { results =>
-                    val symbols = results.values.flatMap(_._1).toList
-                    IO(logger.info(s"JDK sources indexed: ${symbols.size} symbols, caching")) *>
-                      depIndexCache.store(sha, symbols) *>
-                      dependencyIndex.addJar(jar, symbols)
-                  }
+    IO.blocking(JdkSources.find())
+      .flatMap {
+        case None =>
+          IO(logger.info("No JDK sources found ($JAVA_HOME/lib/src.zip absent), skipping JDK indexing"))
+        case Some(srcZip) =>
+          val jar = srcZip.toNioPath.toString
+          depIndexCache.hashJar(srcZip.toNioPath).flatMap { sha =>
+            depIndexCache.lookup(sha).flatMap {
+              case Some(cached) =>
+                IO(logger.info(s"JDK sources cache hit ($jar, ${cached.size} symbols)")) *>
+                  dependencyIndex.addJar(jar, cached)
+              case None =>
+                val parallelism = Runtime.getRuntime.availableProcessors()
+                IO(
+                  logger.info(s"Indexing JDK sources from $jar (parallelism=$parallelism) — this may take a moment")
+                ) *>
+                  JavaIndexer
+                    .forJdk(jar)
+                    .indexJarEntries(srcZip, Nil, parallelism)
+                    .flatMap { results =>
+                      val symbols = results.values.flatMap(_._1).toList
+                      IO(logger.info(s"JDK sources indexed: ${symbols.size} symbols, caching")) *>
+                        depIndexCache.store(sha, symbols) *>
+                        dependencyIndex.addJar(jar, symbols)
+                    }
+            }
           }
-        }
-    }.handleError(e => logger.error("JDK source indexing failed", e))
+      }
+      .handleError(e => logger.error("JDK source indexing failed", e))
 
   def indexExistingProjectArtifacts(targets: Set[ScalaBuildTargetInformation]): IO[Unit] =
     IO.parSequenceN(4) {
@@ -225,8 +229,8 @@ case class IndexManager(
   }
 
   /** Resolve the jar's own transitive Maven dependencies via coursier. Returns `Some(cp)` only when the jar carries
-    * `pom.properties` AND coursier resolves successfully — i.e. the typing classpath is hermetic (a function of the
-    * jar alone). Returns `None` otherwise, signaling the caller to use the project classpath and skip caching.
+    * `pom.properties` AND coursier resolves successfully — i.e. the typing classpath is hermetic (a function of the jar
+    * alone). Returns `None` otherwise, signaling the caller to use the project classpath and skip caching.
     */
   private def resolveHermeticLibCp(jarPath: AbsolutePath): IO[Option[List[AbsolutePath]]] =
     IO.blocking(JarMavenCoordinates.read(jarPath)).flatMap {
@@ -245,12 +249,13 @@ case class IndexManager(
             .asScala
             .map(f => AbsolutePath(f.toPath))
             .toList
-        }.attempt.flatMap {
-          case Right(cp) => IO.pure(Some(cp))
-          case Left(e)   =>
-            IO(logger.warn(s"Coursier resolution failed for $coords ($jarPath), will use project classpath", e))
-              .as(None)
-        }
+        }.attempt
+          .flatMap {
+            case Right(cp) => IO.pure(Some(cp))
+            case Left(e)   =>
+              IO(logger.warn(s"Coursier resolution failed for $coords ($jarPath), will use project classpath", e))
+                .as(None)
+          }
     }
 
   private def findSourcesJar(jarPath: AbsolutePath): Option[AbsolutePath] = {
@@ -275,4 +280,3 @@ case class IndexManager(
   private def hasTastyFiles(dir: AbsolutePath): Boolean =
     java.nio.file.Files.walk(dir.toNioPath).anyMatch(p => p.toString.endsWith(".tasty"))
 }
-

@@ -97,7 +97,7 @@ class ServerImpl(
       for {
         _       <- bspStateManager.importBuild
         targets <- bspStateManager.getAllTargets
-        _ <- List(
+        _       <- List(
           indexManager.indexJdkSources(),
           indexManager.indexDependencies(targets),
           indexManager.indexExistingProjectArtifacts(targets),

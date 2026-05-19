@@ -28,8 +28,8 @@ object JavaFrontendSpec extends SimpleIOSuite {
         units.foreach { unit =>
           unit.tpdTree.foreachSubTree {
             case td: tpd.TypeDef if td.symbol.isClass =>
-              val cls   = td.symbol.asClass
-              val decls = cls.info.decls.toList
+              val cls     = td.symbol.asClass
+              val decls   = cls.info.decls.toList
               val methods = decls.collect {
                 case m if m.is(Flags.Method) && !m.isClassConstructor => m.name.toString
               }

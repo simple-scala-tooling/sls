@@ -34,13 +34,13 @@ object JavaFrontendDriver {
       inspector
     )
 
-  /** Run the frontend on caller-provided [[SourceFile]]s. Lets the caller back sources with a [[ZipPath]] (or any
-    * other `java.nio.file.Path`) so we can read Java from inside a sources jar without extracting it.
+  /** Run the frontend on caller-provided [[SourceFile]]s. Lets the caller back sources with a [[ZipPath]] (or any other
+    * `java.nio.file.Path`) so we can read Java from inside a sources jar without extracting it.
     */
   def inspectSources(sources: List[SourceFile], extraClasspath: List[String])(inspector: JavaInspector): Boolean = {
 
     class CapturePhase extends Phase {
-      override def phaseName: String   = "captureJavaSymbols"
+      override def phaseName: String    = "captureJavaSymbols"
       override def isCheckable: Boolean = false
 
       override def runOn(units: List[CompilationUnit])(using ctx: Context): List[CompilationUnit] = {
@@ -66,9 +66,9 @@ object JavaFrontendDriver {
 
       override protected def newCompiler(implicit ctx: Context): Compiler = new JavaFrontendCompiler
 
-      def runOn(srcs: List[SourceFile], args: Array[String]): Boolean = {
+      def runOn(srcs: List[SourceFile], args: Array[String]): Boolean =
         setup(args, initCtx) match {
-          case None => true
+          case None           => true
           case Some((_, ctx)) =>
             given Context = ctx
             try {
@@ -79,7 +79,6 @@ object JavaFrontendDriver {
             }
             !ctx.reporter.hasErrors
         }
-      }
     }
 
     val currentCp = ClasspathFromClassloader(getClass.getClassLoader)

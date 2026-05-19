@@ -47,14 +47,14 @@ class JavaIndexer(originFor: SourceUri => SymbolOrigin) {
       collector.result
     }
 
-  /** Index all `.java` entries inside `jarPath` without extracting them — opens a zip [[java.nio.file.FileSystem]]
-    * over the jar and feeds dotc [[SourceFile]]s backed by `ZipPath`s. When `parallelism > 1`, partitions entries by
-    * their top-level path component (e.g. JDK module name in `src.zip`, or top-level package in a dep jar) and runs
-    * that many dotc instances concurrently. Each instance is independent — dotc's frontend doesn't share mutable
-    * state across `Run` constructions.
+  /** Index all `.java` entries inside `jarPath` without extracting them — opens a zip [[java.nio.file.FileSystem]] over
+    * the jar and feeds dotc [[SourceFile]]s backed by `ZipPath`s. When `parallelism > 1`, partitions entries by their
+    * top-level path component (e.g. JDK module name in `src.zip`, or top-level package in a dep jar) and runs that many
+    * dotc instances concurrently. Each instance is independent — dotc's frontend doesn't share mutable state across
+    * `Run` constructions.
     *
-    * The shared FileSystem stays open across all parallel workers (cats-effect `Resource`), so `ZipPath`s remain
-    * valid in every chunk.
+    * The shared FileSystem stays open across all parallel workers (cats-effect `Resource`), so `ZipPath`s remain valid
+    * in every chunk.
     */
   def indexJarEntries(
       jarPath: AbsolutePath,
@@ -159,8 +159,8 @@ private class JavaSymbolCollector(originFor: SourceUri => SymbolOrigin) extends 
   private def skipClass(sym: Symbol)(using Context): Boolean =
     sym.is(Flags.Module) || sym.is(Flags.Synthetic)
 
-  /** Skip synthetic / parameter / module-value members: constructor-param mirrors, the lazy `val Square` that points
-    * at the companion module, and anything marked synthetic.
+  /** Skip synthetic / parameter / module-value members: constructor-param mirrors, the lazy `val Square` that points at
+    * the companion module, and anything marked synthetic.
     */
   private def skipMember(sym: Symbol)(using Context): Boolean =
     sym.is(Flags.Synthetic) ||
@@ -273,8 +273,7 @@ private class JavaSymbolCollector(originFor: SourceUri => SymbolOrigin) extends 
 
   private def symbolLocation(sym: Symbol, uri: SourceUri)(using Context): Option[Location] = {
     val pos: SourcePosition = sym.sourcePos
-    if pos.exists then
-      Some(Location(uri, pos.startLine, pos.startColumn, pos.endLine, pos.endColumn))
+    if pos.exists then Some(Location(uri, pos.startLine, pos.startColumn, pos.endLine, pos.endColumn))
     else None
   }
 

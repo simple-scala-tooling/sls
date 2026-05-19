@@ -2,8 +2,8 @@ package org.scala.abusers.sls.index
 
 import org.scala.abusers.sls.AbsolutePath
 
-import java.util.Properties
 import java.util.zip.ZipFile
+import java.util.Properties
 import scala.util.Using
 
 final case class MavenCoordinates(groupId: String, artifactId: String, version: String) {
@@ -11,14 +11,14 @@ final case class MavenCoordinates(groupId: String, artifactId: String, version: 
 }
 
 /** Reads the Maven `pom.properties` that Maven-built jars embed at
-  * `META-INF/maven/<groupId>/<artifactId>/pom.properties`. Returns `None` if the jar wasn't built by Maven, the file
-  * is missing or the properties don't contain all three coordinates.
+  * `META-INF/maven/<groupId>/<artifactId>/pom.properties`. Returns `None` if the jar wasn't built by Maven, the file is
+  * missing or the properties don't contain all three coordinates.
   */
 object JarMavenCoordinates {
 
   def read(jarPath: AbsolutePath): Option[MavenCoordinates] =
     Using.resource(new ZipFile(jarPath.toFile)) { zf =>
-      val entries = zf.entries()
+      val entries                         = zf.entries()
       var found: Option[MavenCoordinates] = None
       while (entries.hasMoreElements && found.isEmpty) {
         val entry = entries.nextElement()
