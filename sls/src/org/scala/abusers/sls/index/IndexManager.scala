@@ -189,8 +189,8 @@ case class IndexManager(
       if symbols.isEmpty then IO.pure(false)
       else dependencyIndex.addJar(jar, symbols).as(true)
 
-    def runJavaIndex(sourcesJar: AbsolutePath, cp: List[AbsolutePath], hermetic: Boolean): IO[Boolean] =
-      if hermetic then depIndexCache.hashJar(sourcesJar.toNioPath).flatMap { sha =>
+    def runJavaIndex(sourcesJar: AbsolutePath, cp: List[AbsolutePath]): IO[Boolean] =
+      depIndexCache.hashJar(sourcesJar.toNioPath).flatMap { sha =>
         depIndexCache.lookup(sha).flatMap {
           case Some(cached) =>
             logger.info(s"Dep index cache hit for $jar (sha=$sha, ${cached.size} symbols)")
@@ -201,24 +201,11 @@ case class IndexManager(
               .flatMap(publish)
         }
       }
-      else runIndexer(sourcesJar, cp).flatMap(publish)
 
     def indexViaJavaSources: IO[Boolean] =
       resolveHermeticDep(jarPath, withSources = true).flatMap {
-        case Some(HermeticResolution(cp, Some(sourcesJar))) =>
-          runJavaIndex(sourcesJar, cp, hermetic = true)
-        case Some(HermeticResolution(cp, None)) =>
-          // Hermetic CP available, but the dep doesn't publish a sources jar — try a sibling on disk.
-          findSourcesJar(jarPath) match {
-            case Some(sj) => runJavaIndex(sj, cp, hermetic = true)
-            case None     => IO.pure(false)
-          }
-        case None =>
-          // No Maven coords — fall back to project classpath + sibling sources jar (no cache).
-          findSourcesJar(jarPath) match {
-            case Some(sj) => runJavaIndex(sj, classpath, hermetic = false)
-            case None     => IO.pure(false)
-          }
+        case Some(HermeticResolution(cp, Some(sourcesJar))) => runJavaIndex(sourcesJar, cp)
+        case _                                              => IO.pure(false)
       }
 
     (for {
@@ -287,14 +274,6 @@ case class IndexManager(
               .as(None)
         }
     }
-
-  private def findSourcesJar(jarPath: AbsolutePath): Option[AbsolutePath] = {
-    val nio        = jarPath.toNioPath
-    val fileName   = nio.getFileName.toString
-    val sourcesArt = fileName.stripSuffix(".jar") + "-sources.jar"
-    val sibling    = nio.resolveSibling(sourcesArt)
-    if java.nio.file.Files.exists(sibling) then Some(AbsolutePath(sibling)) else None
-  }
 
   private def jarContainsTasty(jarPath: AbsolutePath): IO[Boolean] =
     IO.blocking {

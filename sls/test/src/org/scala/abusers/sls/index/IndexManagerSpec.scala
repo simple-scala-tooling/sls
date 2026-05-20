@@ -22,19 +22,6 @@ object IndexManagerSpec extends SimpleIOSuite {
     AbsolutePath(jarPath.toNIO)
   }
 
-  private def createMainAndSourcesJars(
-      baseName: String,
-      classEntries: List[(String, Array[Byte])],
-      sourceEntries: List[(String, String)],
-  ): IO[(AbsolutePath, AbsolutePath)] = IO.blocking {
-    val tmp        = os.temp.dir(prefix = "index-manager-src-test")
-    val mainJar    = tmp / s"$baseName.jar"
-    val sourcesJar = tmp / s"$baseName-sources.jar"
-    writeJar(mainJar.toIO, classEntries)
-    writeJar(sourcesJar.toIO, sourceEntries.map { case (n, s) => n -> s.getBytes("UTF-8") })
-    (AbsolutePath(mainJar.toNIO), AbsolutePath(sourcesJar.toNIO))
-  }
-
   private def writeJar(file: java.io.File, entries: List[(String, Array[Byte])]): Unit = {
     val zos = new ZipOutputStream(new FileOutputStream(file))
     try
@@ -286,39 +273,7 @@ object IndexManagerSpec extends SimpleIOSuite {
     } yield expect(a.isEmpty) and expect(b.isEmpty)
   }
 
-  test("dep jar with -sources.jar containing Java is indexed via JavaIndexer with DependencySource origin") {
-    val javaSource =
-      """package com.example;
-        |public class Widget {
-        |    public String label;
-        |    public int compute(int x) { return x; }
-        |}
-        |""".stripMargin
-
-    val mainCls = javaClass("com/example/Widget")
-    for {
-      jars <- createMainAndSourcesJars(
-        baseName = "widget-1.0.0",
-        classEntries = List(mainCls),
-        sourceEntries = List("com/example/Widget.java" -> javaSource),
-      )
-      (mainJar, _) = jars
-      pi <- ProjectIndex.empty
-      di <- DependencyIndex.empty
-      mgr = IndexManager(pi, di, bytecodeIndexer)
-      _     <- mgr.indexJarSafely(mainJar, Nil)
-      found <- di.getSymbolsByName("compute")
-    } yield {
-      val widgetCompute = found.find(_.owner.exists(_.value == "com.example.Widget"))
-      expect(widgetCompute.isDefined) and
-        expect(widgetCompute.exists(_.origin match {
-          case SymbolOrigin.DependencySource(jp, _) => jp == mainJar.toNioPath.toString
-          case _                                    => false
-        }))
-    }
-  }
-
-  test("dep jar with no -sources.jar falls back to bytecode indexing") {
+  test("dep jar with no Maven coords falls back to bytecode indexing") {
     val mainCls = javaClass("com/example/NoSrc")
     for {
       jar <- createJar(List(mainCls))
