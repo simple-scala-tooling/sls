@@ -4,11 +4,11 @@ package sls.index
 import cats.effect.IO
 import coursierapi.Cache
 import coursierapi.Dependency
-import coursierapi.Fetch
 import coursierapi.Module
 import org.scala.abusers.csp.CompileOutput
 import org.scala.abusers.sls.toSourceUri
 import org.scala.abusers.sls.AbsolutePath
+import org.scala.abusers.sls.CoursierResolver
 import org.scala.abusers.sls.ScalaBuildTargetInformation
 import org.scala.abusers.sls.ScalaBuildTargetInformation.*
 import org.scala.abusers.sls.SourceUri
@@ -16,7 +16,6 @@ import org.slf4j.LoggerFactory
 
 import java.io.FileInputStream
 import java.util.zip.ZipInputStream
-import scala.jdk.CollectionConverters.*
 
 case class IndexManager(
     projectIndex: ProjectIndex,
@@ -190,22 +189,36 @@ case class IndexManager(
       if symbols.isEmpty then IO.pure(false)
       else dependencyIndex.addJar(jar, symbols).as(true)
 
-    def indexViaJavaSources(sourcesJar: AbsolutePath): IO[Boolean] =
-      resolveHermeticLibCp(jarPath).flatMap {
-        case Some(hermeticCp) =>
-          depIndexCache.hashJar(sourcesJar.toNioPath).flatMap { sha =>
-            depIndexCache.lookup(sha).flatMap {
-              case Some(cached) =>
-                logger.info(s"Dep index cache hit for $jar (sha=$sha, ${cached.size} symbols)")
-                publish(cached)
-              case None =>
-                runIndexer(sourcesJar, hermeticCp)
-                  .flatTap(depIndexCache.store(sha, _))
-                  .flatMap(publish)
-            }
+    def runJavaIndex(sourcesJar: AbsolutePath, cp: List[AbsolutePath], hermetic: Boolean): IO[Boolean] =
+      if hermetic then depIndexCache.hashJar(sourcesJar.toNioPath).flatMap { sha =>
+        depIndexCache.lookup(sha).flatMap {
+          case Some(cached) =>
+            logger.info(s"Dep index cache hit for $jar (sha=$sha, ${cached.size} symbols)")
+            publish(cached)
+          case None =>
+            runIndexer(sourcesJar, cp)
+              .flatTap(depIndexCache.store(sha, _))
+              .flatMap(publish)
+        }
+      }
+      else runIndexer(sourcesJar, cp).flatMap(publish)
+
+    def indexViaJavaSources: IO[Boolean] =
+      resolveHermeticDep(jarPath, withSources = true).flatMap {
+        case Some(HermeticResolution(cp, Some(sourcesJar))) =>
+          runJavaIndex(sourcesJar, cp, hermetic = true)
+        case Some(HermeticResolution(cp, None)) =>
+          // Hermetic CP available, but the dep doesn't publish a sources jar — try a sibling on disk.
+          findSourcesJar(jarPath) match {
+            case Some(sj) => runJavaIndex(sj, cp, hermetic = true)
+            case None     => IO.pure(false)
           }
         case None =>
-          runIndexer(sourcesJar, classpath).flatMap(publish)
+          // No Maven coords — fall back to project classpath + sibling sources jar (no cache).
+          findSourcesJar(jarPath) match {
+            case Some(sj) => runJavaIndex(sj, classpath, hermetic = false)
+            case None     => IO.pure(false)
+          }
       }
 
     (for {
@@ -222,8 +235,8 @@ case class IndexManager(
           // references silently drift to symbols X's author never intended. Coursier resolves the
           // jar's POM to reconstruct the original compile-time view. Falls back to the project
           // classpath when the jar has no Maven coords (e.g. Mill-internal jars).
-          resolveHermeticLibCp(jarPath)
-            .map(_.getOrElse(classpath))
+          resolveHermeticDep(jarPath, withSources = false)
+            .map(_.map(_.classpath).getOrElse(classpath))
             .flatMap { cp =>
               indexer.indexJar(jarPath, cp).flatMap { results =>
                 val symbols = results.values.flatMap(_._1).toList
@@ -235,53 +248,44 @@ case class IndexManager(
               indexViaBytecode
             }
         } else
-          findSourcesJar(jarPath) match {
-            case Some(sj) =>
-              indexViaJavaSources(sj)
-                .handleErrorWith { e =>
-                  logger.error(s"Java source indexing failed for $jar (sources: $sj), falling back to bytecode", e)
-                  IO.pure(false)
-                }
-                .flatMap { indexed =>
-                  if indexed then IO.unit
-                  else {
-                    logger.info(s"Java source indexing produced nothing for $jar, falling back to bytecode")
-                    indexViaBytecode
-                  }
-                }
-            case None => indexViaBytecode
-          }
+          indexViaJavaSources
+            .handleErrorWith { e =>
+              logger.error(s"Java source indexing failed for $jar, falling back to bytecode", e)
+              IO.pure(false)
+            }
+            .flatMap { indexed =>
+              if indexed then IO.unit
+              else indexViaBytecode
+            }
     } yield ()).handleError(e => logger.error(s"Failed to index JAR $jar", e))
   }
 
-  /** Resolve the jar's own transitive Maven dependencies via coursier. Returns `Some(cp)` only when the jar carries
+  /** Resolve the jar's own transitive Maven dependencies via coursier. Returns `Some(_)` only when the jar carries
     * `pom.properties` AND coursier resolves successfully — i.e. the typing classpath is hermetic (a function of the jar
-    * alone). Returns `None` otherwise, signaling the caller to use the project classpath and skip caching.
+    * alone). When `withSources` is set, the same fetch also pulls the dep's sources jar via the `sources` classifier;
+    * `sourcesJar` is populated when one was actually published for this dep. Returns `None` when there are no Maven
+    * coords or coursier fails, signaling the caller to use the project classpath and skip caching.
     */
-  private def resolveHermeticLibCp(jarPath: AbsolutePath): IO[Option[List[AbsolutePath]]] =
+  private def resolveHermeticDep(jarPath: AbsolutePath, withSources: Boolean): IO[Option[HermeticResolution]] =
     IO.blocking(JarMavenCoordinates.read(jarPath)).flatMap {
       case None =>
         IO(logger.debug(s"No Maven coordinates in $jarPath, will use project classpath (no cache)")).as(None)
       case Some(coords) =>
-        IO.blocking {
-          // TODO: only Maven Central is consulted. Projects pulling deps from snapshot or private repos will fail
-          // resolution and fall through to the project-CP path (also bypassing the cache). Thread the project's
-          // repository list through here via `.withRepositories(...)` when we have access to it.
-          Fetch
-            .create()
-            .withCache(coursierCache)
-            .addDependencies(Dependency.of(Module.of(coords.groupId, coords.artifactId), coords.version))
-            .fetch()
-            .asScala
-            .map(f => AbsolutePath(f.toPath))
-            .toList
-        }.attempt
-          .flatMap {
-            case Right(cp) => IO.pure(Some(cp))
-            case Left(e)   =>
-              IO(logger.warn(s"Coursier resolution failed for $coords ($jarPath), will use project classpath", e))
-                .as(None)
-          }
+        // TODO: only Maven Central is consulted. Projects pulling deps from snapshot or private repos will fail
+        // resolution and fall through to the project-CP path (also bypassing the cache). Thread the project's
+        // repository list through here when we have access to it.
+        val dep         = Dependency.of(Module.of(coords.groupId, coords.artifactId), coords.version)
+        val classifiers = if withSources then Set("sources") else Set.empty[String]
+        CoursierResolver.fetchPaths(coursierCache, Seq(dep), classifiers = classifiers).attempt.flatMap {
+          case Right(files) =>
+            val sourcesName = s"${coords.artifactId}-${coords.version}-sources.jar"
+            val sourcesJar  = files.find(_.toNioPath.getFileName.toString == sourcesName)
+            val cp          = files.filterNot(_.toNioPath.getFileName.toString.endsWith("-sources.jar"))
+            IO.pure(Some(HermeticResolution(cp, sourcesJar)))
+          case Left(e) =>
+            IO(logger.warn(s"Coursier resolution failed for $coords ($jarPath), will use project classpath", e))
+              .as(None)
+        }
     }
 
   private def findSourcesJar(jarPath: AbsolutePath): Option[AbsolutePath] = {
@@ -305,4 +309,6 @@ case class IndexManager(
 
   private def hasTastyFiles(dir: AbsolutePath): Boolean =
     java.nio.file.Files.walk(dir.toNioPath).anyMatch(p => p.toString.endsWith(".tasty"))
+
+  private case class HermeticResolution(classpath: List[AbsolutePath], sourcesJar: Option[AbsolutePath])
 }

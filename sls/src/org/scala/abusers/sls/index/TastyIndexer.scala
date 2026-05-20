@@ -166,7 +166,7 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
             case td: TypeDef if !shouldSkipSymbol(td.symbol) =>
               processTypeDef(td, owner)
               traverseTreeChildren(tree)(td.symbol)
-            case definition: Definition =>
+            case _: Definition =>
               traverseTreeChildren(tree)(owner)
             case tree if !tree.symbol.isNoSymbol =>
               addReferenceFromTree(tree, owner)
