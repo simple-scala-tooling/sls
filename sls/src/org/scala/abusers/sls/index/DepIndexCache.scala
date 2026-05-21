@@ -1,7 +1,6 @@
 package org.scala.abusers.sls.index
 
 import cats.effect.IO
-import com.github.plokhotnyuk.jsoniter_scala.core.*
 import fs2.hashing.HashAlgorithm
 import fs2.hashing.Hashing
 import fs2.io.file.CopyFlag
@@ -9,7 +8,6 @@ import fs2.io.file.CopyFlags
 import fs2.io.file.Files
 import fs2.io.file.Path as Fs2Path
 import fs2.Stream
-import org.scala.abusers.sls.index.IndexedSymbolCodecs.given
 import org.slf4j.LoggerFactory
 
 import java.nio.file.Path
@@ -19,15 +17,16 @@ import java.nio.file.Path
   * hermeticity is the whole point: when the typing classpath is the lib's own coursier-resolved deps (not the project
   * CP), the indexer output depends only on the jar bytes plus our extraction logic.
   *
-  * Bump [[DepIndexCache.Version]] whenever the cached JSON representation changes — adds/removes/renames in
-  * [[IndexedSymbol]] / [[SymbolOrigin]] / etc., or anything that would make old entries decode to surprising values.
-  * Each version lives in its own subdirectory so old entries are simply orphaned, never read.
+  * The wire format is smithy4s-protobuf over the [[org.scala.abusers.sls.depindex.CachedDepIndex]] schema, with all
+  * strings interned into a per-file table so the repetitive FQNs, jar paths, and source URIs collapse to varint
+  * indices. Bump [[DepIndexCache.Version]] on any change to that schema or the indexer's extraction logic. Each version
+  * lives in its own subdirectory so old entries are simply orphaned, never read.
   */
 class DepIndexCache(root: Path) {
   private val logger = LoggerFactory.getLogger(this.getClass)
   private val dir    = root.resolve(s"v${DepIndexCache.Version}")
 
-  def cachePath(sha: String): Path = dir.resolve(s"$sha.json")
+  def cachePath(sha: String): Path = dir.resolve(s"$sha.bin")
 
   def lookup(sha: String): IO[Option[List[IndexedSymbol]]] = {
     val p = Fs2Path.fromNioPath(cachePath(sha))
@@ -38,7 +37,14 @@ class DepIndexCache(root: Path) {
           .readAll(p)
           .compile
           .to(Array)
-          .map(bytes => Option(readFromArray[List[IndexedSymbol]](bytes)))
+          .flatMap { bytes =>
+            IndexedSymbolProtoCodec.decode(bytes) match {
+              case Right(symbols) => IO.pure(Some(symbols))
+              case Left(err)      =>
+                IO(logger.warn(s"Dep index cache entry $p unreadable, treating as miss: $err")) *>
+                  Files[IO].deleteIfExists(p).attempt.as(None)
+            }
+          }
           .handleErrorWith { t =>
             IO(logger.warn(s"Dep index cache entry $p unreadable, treating as miss", t)) *>
               Files[IO].deleteIfExists(p).attempt.as(None)
@@ -49,7 +55,7 @@ class DepIndexCache(root: Path) {
   def store(sha: String, symbols: List[IndexedSymbol]): IO[Unit] = {
     val target = Fs2Path.fromNioPath(cachePath(sha))
     val dirFs2 = Fs2Path.fromNioPath(dir)
-    val bytes  = writeToArray(symbols)
+    val bytes  = IndexedSymbolProtoCodec.encode(symbols)
     val flags  = CopyFlags(CopyFlag.AtomicMove, CopyFlag.ReplaceExisting)
     Files[IO].createDirectories(dirFs2) *>
       Files[IO].createTempFile(Some(dirFs2), "dep-idx-", ".tmp", None).flatMap { tmp =>
@@ -75,8 +81,8 @@ class DepIndexCache(root: Path) {
 
 object DepIndexCache {
 
-  /** Bump on any breaking change to the cached IndexedSymbol JSON shape or to the indexer's extraction logic. */
-  val Version: Int = 2
+  /** Bump on any breaking change to the cached IndexedSymbol shape or to the indexer's extraction logic. */
+  val Version: Int = 3
 
   def default: DepIndexCache =
     new DepIndexCache(XdgCacheDir.cacheHome.resolve("sls/dep-index"))

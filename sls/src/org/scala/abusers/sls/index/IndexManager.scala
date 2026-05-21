@@ -196,6 +196,12 @@ case class IndexManager(
             logger.info(s"Dep index cache hit for $jar (sha=$sha, ${cached.size} symbols)")
             publish(cached)
           case None =>
+            // Cache the result unconditionally — including empty lists, which become
+            // zero-byte files on disk. Those are the negative-cache marker for jars
+            // whose sources jar holds no `.java` entries for the Java indexer to
+            // process: typically Scala 2.x libraries (no TASTy, sources are `.scala`),
+            // since Scala 3 libs with TASTy go through the TASTy path and don't touch
+            // this cache. Without this we'd re-run the Java indexer on every startup.
             runIndexer(sourcesJar, cp)
               .flatTap(depIndexCache.store(sha, _))
               .flatMap(publish)

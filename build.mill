@@ -102,6 +102,7 @@ object sls extends CommonScalaModule {
     mvn"org.ow2.asm:asm:9.6",
     mvn"com.github.plokhotnyuk.jsoniter-scala::jsoniter-scala-core:2.30.5",
     mvn"com.github.plokhotnyuk.jsoniter-scala::jsoniter-scala-macros:2.30.5",
+    mvn"com.disneystreaming.smithy4s::smithy4s-protobuf:${slsSmithy.smithy4sVersion()}",
   )
 
   def javacOptions = Seq(
