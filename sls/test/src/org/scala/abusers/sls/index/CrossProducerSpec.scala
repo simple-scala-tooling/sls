@@ -1,17 +1,13 @@
 package org.scala.abusers.sls.index
 
 import cats.effect.IO
-import org.scala.abusers.sls.AbsolutePath
 import weaver.*
 
-import java.nio.file.Paths
-
 /** Verifies that TastyIndexer, BytecodeIndexer, and JavaIndexer emit the same SymbolId
-  * for the same source-level symbols in the cross-producer fixture
-  * (`sls/test/resources/cross-producer/`).
+  * for the same source-level symbols in the cross-producer fixture (`crossProducerFixture`).
   *
-  * The fixture JAR is pre-compiled by the `crossProducerFixture` Mill module and injected
-  * into test resources as `/cross-producer/fixture.jar`.
+  * The fixture JAR is pre-compiled and published to `~/.m2` by `sls.test.forkArgs` — see
+  * `IndexTestFixtures`. No runtime compilation.
   *
   * All assertions are ignored until Phase 1 fixes the `Cls.foo` vs `Cls#foo` id mismatch.
   * When Phase 1 is complete, delete each `ignore(...)` line and watch the tests go green.
@@ -23,28 +19,16 @@ object CrossProducerSpec extends SimpleIOSuite {
     "pending until Phase 1: TastyIndexer emits crossproducer.Lib.compute, " +
       "BytecodeIndexer emits crossproducer.Lib#compute — canonical SymbolId required"
 
-  private def resourcePath(name: String): AbsolutePath = {
-    val url = Option(getClass.getResource(s"/cross-producer/$name"))
-      .getOrElse(sys.error(s"missing test resource: /cross-producer/$name"))
-    AbsolutePath(Paths.get(url.toURI))
-  }
-
-  /** Pre-compiled fixture JAR (Lib.scala + LibJ.java), produced by `crossProducerFixture`. */
-  private lazy val fixtureJar: AbsolutePath = resourcePath("fixture.jar")
-
-  /** All symbols produced by TastyIndexer reading the fixture JAR's .tasty entries. */
   private def tastySymbols: IO[List[IndexedSymbol]] =
-    TastyIndexer("test").indexJar(fixtureJar, Nil).map(_.values.flatMap(_._1).toList)
+    TastyIndexer("test").indexJar(IndexTestFixtures.crossProducerJar, Nil).map(_.values.flatMap(_._1).toList)
 
-  /** All symbols produced by BytecodeIndexer reading the fixture JAR's .class entries. */
   private def bytecodeSymbols: IO[List[IndexedSymbol]] =
-    BytecodeIndexer().indexJar(fixtureJar)
+    BytecodeIndexer().indexJar(IndexTestFixtures.crossProducerJar)
 
-  /** All symbols produced by JavaIndexer reading the LibJ.java source file. */
   private def javaSymbols: IO[List[IndexedSymbol]] =
     JavaIndexer
       .forProject("test")
-      .indexFiles(List(resourcePath("LibJ.java")), Nil)
+      .indexFiles(List(IndexTestFixtures.crossProducerLibJSrc), Nil)
       .map(_.values.flatMap(_._1).toList)
 
   // ── Top-level class ──────────────────────────────────────────────────────────

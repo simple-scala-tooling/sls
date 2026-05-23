@@ -329,7 +329,7 @@ These are worth resolving before or during execution, not after.
 
 **Pre-compiled fixture JARs are a stopgap, not a strategy.**
 
-`CrossProducerSpec` and `TastyIndexerSpec` currently rely on Mill modules (`crossProducerFixture`, `tastyIndexerFixture`) that pre-compile fixtures and inject the JAR into test resources. This avoids calling dotc at test time but creates a gap: the tests never exercise a real, end-to-end Scala compilation — the fixture is frozen at the moment the Mill task ran.
+`CrossProducerSpec` and `TastyIndexerSpec` currently rely on Mill modules (`crossProducerFixture`, `tastyIndexerFixture`) that pre-compile fixtures and publish them to local M2 via `sls.test.forkArgs` (`publishM2LocalCached`); tests resolve them via `IndexTestFixtures` (cellar-style). This avoids calling dotc at test time but creates a gap: the tests never exercise a real, end-to-end Scala compilation — the fixture is frozen at the moment the Mill task ran.
 
 What we actually need for the long term is a test infrastructure that:
 

@@ -114,20 +114,29 @@ object sls extends CommonScalaModule {
     )
     def testFramework = "weaver.framework.CatsEffect"
 
-    /** Inject pre-compiled fixture JARs into test resources.
-      * - `/cross-producer/fixture.jar`      → CrossProducerSpec
-      * - `/tasty-indexer-fixture/fixture.jar` → TastyIndexerSpec
+    /** Publish fixtures to ~/.m2 before running tests and expose their coordinates
+      * via system properties. Mirrors the cellar test-fixture pattern.
+      *
+      * Tests read these properties via `org.scala.abusers.sls.index.IndexTestFixtures`.
       */
-    override def resources = Task {
-      val crossJar  = crossProducerFixture.jar().path
-      val tastyJar  = tastyIndexerFixture.jar().path
-      val crossDest = Task.dest / "cross-producer"
-      val tastyDest = Task.dest / "tasty-indexer-fixture"
-      os.makeDir.all(crossDest)
-      os.makeDir.all(tastyDest)
-      os.copy(crossJar, crossDest / "fixture.jar", replaceExisting = true)
-      os.copy(tastyJar, tastyDest / "fixture.jar", replaceExisting = true)
-      super.resources() ++ Seq(PathRef(Task.dest))
+    override def forkArgs = Task {
+      crossProducerFixture.publishM2LocalCached()
+      tastyIndexerFixture.publishM2LocalCached()
+      val libJSrc = crossProducerFixture
+        .allSourceFiles()
+        .map(_.path)
+        .find(_.last == "LibJ.java")
+        .getOrElse(sys.error("LibJ.java not found in crossProducerFixture sources"))
+      super.forkArgs() ++ Seq(
+        s"-Dsls.test.localM2=${os.home / ".m2" / "repository"}",
+        s"-Dsls.test.crossProducerGroup=org.scala.abusers.sls.test",
+        s"-Dsls.test.crossProducerArtifact=cross-producer-fixture_3",
+        s"-Dsls.test.crossProducerVersion=${fixtureVersion}",
+        s"-Dsls.test.tastyIndexerGroup=org.scala.abusers.sls.test",
+        s"-Dsls.test.tastyIndexerArtifact=tasty-indexer-fixture_3",
+        s"-Dsls.test.tastyIndexerVersion=${fixtureVersion}",
+        s"-Dsls.test.crossProducerLibJSrc=$libJSrc",
+      )
     }
   }
 }
@@ -189,24 +198,43 @@ object testModule extends ScalaModule {
 
 }
 
-/** Compiles the cross-producer fixture sources (Lib.scala + LibJ.java) into a JAR that
-  * contains both .class and .tasty entries. The JAR is injected into sls.test resources
-  * so CrossProducerSpec can reference it without runtime compilation.
+val fixtureVersion = "0.1.0-SNAPSHOT"
+
+def fixturePom(desc: String) = PomSettings(
+  description = desc,
+  organization = "org.scala.abusers.sls.test",
+  url = "https://github.com/simple-scala-tooling/simple-language-server",
+  licenses = Seq(License.`MPL-2.0`),
+  versionControl = VersionControl.github("simple-scala-tooling", "simple-language-server"),
+  developers = Seq(
+    Developer("rochala", "Jędrzej Rochala", "https://github.com/rochala")
+  ),
+)
+
+/** Cross-producer fixture (Lib.scala + LibJ.java) compiled into a JAR with both
+  * `.class` and `.tasty` entries. Published to local M2 by `sls.test.forkArgs`;
+  * consumed by `CrossProducerSpec` via `IndexTestFixtures`.
   */
-object crossProducerFixture extends CommonScalaModule {
-  override def sources = Task.Sources(
-    os.pwd / "sls" / "test" / "resources" / "cross-producer"
-  )
+object crossProducerFixture extends CommonScalaModule with PublishModule {
+  def publishVersion = fixtureVersion
+  def artifactName   = "cross-producer-fixture"
+  def pomSettings    = fixturePom("SLS cross-producer test fixture")
 }
 
-/** Compiles the TastyIndexer test fixtures into a JAR so TastyIndexerSpec never
-  * calls dotc at test time. The JAR is injected into sls.test resources under
-  * `/tasty-indexer-fixture/fixture.jar`.
+/** TastyIndexer fixture sources compiled into a JAR with `.class` and `.tasty`.
+  * Published to local M2 by `sls.test.forkArgs`; consumed by `TastyIndexerSpec`
+  * via `IndexTestFixtures`.
   */
-object tastyIndexerFixture extends CommonScalaModule {
-  override def sources = Task.Sources(
-    os.pwd / "sls" / "test" / "resources" / "tasty-indexer-fixture"
-  )
+object tastyIndexerFixture extends CommonScalaModule with PublishModule {
+  def publishVersion = fixtureVersion
+  def artifactName   = "tasty-indexer-fixture"
+  def pomSettings    = fixturePom("SLS TastyIndexer test fixture")
+}
+
+/** Publish both fixtures to ~/.m2. */
+def publishFixtures() = Task.Command {
+  crossProducerFixture.publishM2Local()()
+  tastyIndexerFixture.publishM2Local()()
 }
 
 object zincCli extends CommonScalaModule with PublishModule {
