@@ -18,7 +18,7 @@ object ProfilingExecutionContext {
       def execute(runnable: Runnable): Unit =
 
         ec.execute(new Runnable {
-          val ctx = localContext.get()
+          val ctx         = localContext.get()
           def run(): Unit = {
 
             val spanOpt = ctx

@@ -5,10 +5,11 @@ import cats.effect.IO
 import com.evolution.scache.Cache as SCache
 import com.evolution.scache.ExpiringCache
 import coursierapi.*
+import org.scala.abusers.sls.AbsolutePath
+import org.scala.abusers.sls.CoursierResolver
 import org.scala.abusers.sls.ScalaBuildTargetInformation
 import org.scala.abusers.sls.ScalaBuildTargetInformation.*
 import org.scala.abusers.sls.SynchronizedState
-import os.Path
 
 import java.net.URLClassLoader
 import scala.concurrent.duration.*
@@ -21,45 +22,41 @@ class PresentationCompilerProvider(
 ) {
   private val cache = Cache.create() // .withLogger TODO No completions here
 
-  private def fetchPresentationCompilerJars(scalaVersion: ScalaVersion): IO[Seq[os.Path]] = IO.blocking {
+  private def fetchPresentationCompilerJars(scalaVersion: ScalaVersion): IO[Seq[AbsolutePath]] = {
     val dep = Dependency.of(
       Module.of("org.scala-lang", "scala3-presentation-compiler_3"),
       scalaVersion.value,
     )
-
-    Fetch
-      .create()
-      .withCache(cache)
-      .addDependencies(dep)
-      .addRepositories(MavenRepository.of("https://central.sonatype.com/repository/maven-snapshots/"))
-      .fetch()
-      .asScala
-      .map(os.Path.apply)
-      .toList
-
+    CoursierResolver.fetchPaths(
+      cache,
+      Seq(dep),
+      repositories = Seq(MavenRepository.of("https://central.sonatype.com/repository/maven-snapshots/")),
+    )
   }
 
   // FIXME: We need to implement logic that invalidates all dependent nodes
   def invalidateCompilers(): IO[Unit] = compilers.clear.void
 
   private def freshPresentationCompilerClassloader(
-      projectClasspath: Seq[os.Path],
-      compilerClasspath: Seq[os.Path],
+      projectClasspath: Seq[AbsolutePath],
+      compilerClasspath: Seq[AbsolutePath],
   ): IO[URLClassLoader] =
     IO.blocking {
       val fullClasspath    = compilerClasspath ++ projectClasspath
-      val urlFullClasspath = fullClasspath.map(_.toIO.toURL)
+      val urlFullClasspath = fullClasspath.map(_.toFile.toURI.toURL)
       URLClassLoader(urlFullClasspath.toArray)
     }
 
-  private def createPC(scalaVersion: ScalaVersion, projectClasspath: List[Path], scalacOptions: List[String]) =
+  private def createPC(scalaVersion: ScalaVersion, projectClasspath: List[AbsolutePath], scalacOptions: List[String]) =
     for {
       compilerClasspath <- fetchPresentationCompilerJars(scalaVersion)
       classloader       <- freshPresentationCompilerClassloader(projectClasspath, compilerClasspath)
       pc <- serviceLoader.load(classOf[RawPresentationCompiler], PresentationCompilerProvider.classname, classloader)
       scalacOptions0 = scalacOptions ++ Seq("-Ywith-best-effort-tasty", "-Ybest-effort")
-      _ <- IO.consoleForIO.error(s"Creating presentation compiler with classpath: ${projectClasspath.map(_.toString).mkString(", ")} and options: ${scalacOptions0.mkString(" ")}")
-    } yield pc.newInstance("pc-id-replace", projectClasspath.map(_.toNIO).asJava, scalacOptions0.toList.asJava)
+      _ <- IO.consoleForIO.error(
+        s"Creating presentation compiler with classpath: ${projectClasspath.map(_.toNioPath.toString).mkString(", ")} and options: ${scalacOptions0.mkString(" ")}"
+      )
+    } yield pc.newInstance("pc-id-replace", projectClasspath.map(_.toNioPath).asJava, scalacOptions0.toList.asJava)
 
   def get(info: ScalaBuildTargetInformation)(using SynchronizedState): IO[RawPresentationCompiler] =
     compilers.getOrUpdate(info.buildTarget.id)(createPC(info.scalaVersion, info.classpath, info.compilerOptions))
@@ -71,7 +68,7 @@ object PresentationCompilerProvider {
   def instance: IO[PresentationCompilerProvider] =
     for {
       serviceLoader <- BlockingServiceLoader.instance
-      pcProvider <- SCache
+      pcProvider    <- SCache
         .expiring[IO, BuildTargetIdentifier, RawPresentationCompiler]( // we will need to move this out because other services will want to manage the state of the cache and invalidate when configuration changes also this shoul be ModuleFingerprint or something like that
           ExpiringCache.Config(expireAfterRead = 5.minutes),
           None,
@@ -89,7 +86,7 @@ object ScalaVersion {
   private val separators   = Array('.', '-', '_')
 
   def apply(scalaVersion: String): ScalaVersion = scalaVersion
-  given Ordering[ScalaVersion] = new Ordering[ScalaVersion] {
+  given Ordering[ScalaVersion]                  = new Ordering[ScalaVersion] {
     def compareParts(x: String, y: String): Int =
       (x.headOption, y.headOption) match {
         case (Some(c1), Some(c2)) if c1.isDigit && c2.isDigit =>

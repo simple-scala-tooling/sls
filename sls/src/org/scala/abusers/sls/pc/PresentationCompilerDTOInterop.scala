@@ -1,7 +1,9 @@
 package org.scala.abusers.pc
 
 import org.eclipse.lsp4j.jsonrpc.json.MessageJsonHandler
+import org.scala.abusers.sls.sourceUri
 import org.scala.abusers.sls.DocumentState
+import org.scala.abusers.sls.SourceUri
 import smithy4s.json.Json
 import smithy4s.schema.Schema
 import smithy4s.Blob
@@ -34,7 +36,7 @@ object PresentationCompilerDTOInterop {
       def offset(): Int        = position.toOffset
       def text(): String       = doc.content
       def token(): CancelToken = cancelToken
-      def uri(): URI           = doc.uri
+      def uri(): URI           = doc.uri.toURI
     }
   }
 
@@ -47,7 +49,7 @@ object PresentationCompilerDTOInterop {
   }
 
   trait WithURI[A] {
-    def uri(params: A): URI
+    def uri(params: A): SourceUri
   }
 
   trait PositionWithURI[A] extends WithPosition[A] with WithURI[A]
@@ -55,26 +57,26 @@ object PresentationCompilerDTOInterop {
 
   given PositionWithURI[lsp.CompletionParams] with {
     def position(params: lsp.CompletionParams): lsp.Position = params.position
-    def uri(params: lsp.CompletionParams): URI               = URI(params.textDocument.uri)
+    def uri(params: lsp.CompletionParams): SourceUri         = params.textDocument.sourceUri
   }
 
   given PositionWithURI[lsp.HoverParams] with { // TODO can't rename inside the type param
     def position(params: lsp.HoverParams): lsp.Position = params.position
-    def uri(params: lsp.HoverParams): URI               = URI(params.textDocument.uri)
+    def uri(params: lsp.HoverParams): SourceUri         = params.textDocument.sourceUri
   }
 
   given PositionWithURI[lsp.SignatureHelpParams] with {
     def position(params: lsp.SignatureHelpParams): lsp.Position = params.position
-    def uri(params: lsp.SignatureHelpParams): URI               = URI(params.textDocument.uri)
+    def uri(params: lsp.SignatureHelpParams): SourceUri         = params.textDocument.sourceUri
   }
 
   given PositionWithURI[lsp.DefinitionParams] with {
     def position(params: lsp.DefinitionParams): lsp.Position = params.position
-    def uri(params: lsp.DefinitionParams): URI               = URI(params.textDocument.uri)
+    def uri(params: lsp.DefinitionParams): SourceUri         = params.textDocument.sourceUri
   }
 
   given RangeWithURI[lsp.InlayHintParams] with {
     def range(params: lsp.InlayHintParams): lsp.Range = params.range
-    def uri(params: lsp.InlayHintParams): URI         = URI(params.textDocument.uri)
+    def uri(params: lsp.InlayHintParams): SourceUri   = params.textDocument.sourceUri
   }
 }

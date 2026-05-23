@@ -5,13 +5,11 @@ import cats.syntax.all.*
 import jsonrpclib.fs2.*
 import jsonrpclib.fs2.FS2Channel
 import jsonrpclib.smithy4sinterop.ServerEndpoints
-import java.{util => ju}
 
 object ZincCli extends IOApp {
 
-  override protected def reportFailure(err: Throwable): IO[Unit] = {
+  override protected def reportFailure(err: Throwable): IO[Unit] =
     IO.consoleForIO.errorln(s"Fatal error in Zinc CLI: ${err.getMessage}, ${err.getStackTrace().mkString("\n")}")
-  }
 
   override def run(args: List[String]): IO[ExitCode] = {
     val app = for {
@@ -19,7 +17,7 @@ object ZincCli extends IOApp {
       server               <- IO(ZincCliServer()).toResource
       serverEndpoints      <- ServerEndpoints(server).liftTo[IO].toResource
       channelWithEndpoints <- fs2Channel.withEndpoints(serverEndpoints)
-      _ <- fs2.Stream
+      _                    <- fs2.Stream
         .never[IO]
         .concurrently(
           // STDIN

@@ -16,7 +16,7 @@ trait IOCancelTokens {
 }
 
 object IOCancelTokens {
-  val logger = LoggerFactory.getLogger(getClass)
+  val logger                                 = LoggerFactory.getLogger(getClass)
   def instance: Resource[IO, IOCancelTokens] = Dispatcher.parallel[IO].map { dispatcher =>
     new {
       def mkCancelToken: Resource[IO, CancelToken] =

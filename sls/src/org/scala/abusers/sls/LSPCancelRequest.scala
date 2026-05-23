@@ -13,6 +13,6 @@ object LSPCancelRequest {
     .make[LSPCancelRequest](
       "$/cancelRequest",
       _.id,
-      LSPCancelRequest(_)
+      LSPCancelRequest(_),
     )
 }

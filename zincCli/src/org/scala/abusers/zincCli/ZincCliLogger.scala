@@ -1,8 +1,8 @@
 package org.scala.abusers.zincCli
 
-import java.{util => ju}
 import xsbti.Logger
-import ju.function.Supplier
+
+import java.util.function.Supplier
 
 class ZincCliLogger extends Logger {
 

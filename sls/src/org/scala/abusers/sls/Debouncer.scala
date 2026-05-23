@@ -16,7 +16,7 @@ class Debouncer(delay: FiniteDuration) {
     for {
       fiberOpt <- ref.getAndSet(None)
       _        <- fiberOpt.traverse_(_.cancel)
-      fiber <- Temporal[IO].start(
+      fiber    <- Temporal[IO].start(
         IO.sleep(delay) *> run
       )
       _ <- ref.set(Some(fiber))

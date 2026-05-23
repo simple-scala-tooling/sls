@@ -11,9 +11,9 @@ out
 .bloop
 
 .DS_STORE
-langoustine-tracer
 
 .idea
 .vscode
+.direnv
 .claude/settings.local.json
 .mcp.json

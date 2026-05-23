@@ -17,40 +17,39 @@ import smithy4s.json.Json
   *
   * @param publishedDiagnostics
   */
-// FIXME revert this to URI
-class DiagnosticManager(publishedDiagnostics: MapRef[IO, String, Option[Set[lsp.Diagnostic]]]) {
+class DiagnosticManager(publishedDiagnostics: MapRef[IO, SourceUri, Option[Set[lsp.Diagnostic]]]) {
   private def convertDiagnostic(bspDiag: BspDiagnostic): lsp.Diagnostic = {
     val data = Json.writeBlob(bspDiag)
     // to be chimneyed
     Json.read[lsp.Diagnostic](data).toOption.getOrElse(sys.error(s"Failed to convert BSP diagnostic to LSP: $data"))
   }
 
-  def didChange(client: SlsLanguageClient[IO], uri: String, pcDiags: List[lsp.Diagnostic]): IO[Unit] =
+  def didChange(client: SlsLanguageClient[IO], uri: SourceUri, pcDiags: List[lsp.Diagnostic]): IO[Unit] =
     // remove diagnostic on modified lines
     // ask presentation compiler for diagnostics
     for {
       _ <- publishedDiagnostics(uri).set(pcDiags.toSet.some)
-      request = lsp.PublishDiagnosticsParams(uri, pcDiags, None)
+      request = lsp.PublishDiagnosticsParams(uri.toLspUri, pcDiags, None)
       _ <- client.textDocumentPublishDiagnostics(request)
     } yield ()
 
   def onBuildPublishDiagnostics(client: SlsLanguageClient[IO], input: BspPublishDiagnosticsParams): IO[Unit] = {
-    val bspUri   = input.textDocument.uri
-    val lspDiags = input.diagnostics.toSet.map(convertDiagnostic)
+    val uri                                 = input.textDocument.uri.toSourceUri
+    val lspDiags                            = input.diagnostics.toSet.map(convertDiagnostic)
     def request(diags: Set[lsp.Diagnostic]) =
-      lsp.PublishDiagnosticsParams(bspUri.value, diags.toList, None)
+      lsp.PublishDiagnosticsParams(uri.toLspUri, diags.toList, None)
 
     if input.reset then {
       for {
-        _ <- publishedDiagnostics(input.textDocument.uri.value).set(lspDiags.some)
+        _ <- publishedDiagnostics(uri).set(lspDiags.some)
         _ <- client.textDocumentPublishDiagnostics(
-          lsp.PublishDiagnosticsParams(input.textDocument.uri.value, lspDiags.toList)
+          lsp.PublishDiagnosticsParams(uri.toLspUri, lspDiags.toList)
         )
       } yield ()
 
     } else {
       for {
-        currentDiags <- publishedDiagnostics(bspUri.value).updateAndGet(_.foldLeft(lspDiags)(_ ++ _).some)
+        currentDiags <- publishedDiagnostics(uri).updateAndGet(_.foldLeft(lspDiags)(_ ++ _).some)
         _            <- client.textDocumentPublishDiagnostics(request(currentDiags.get))
       } yield ()
     }
@@ -59,5 +58,5 @@ class DiagnosticManager(publishedDiagnostics: MapRef[IO, String, Option[Set[lsp.
 
 object DiagnosticManager {
   def instance: IO[DiagnosticManager] =
-    MapRef.ofScalaConcurrentTrieMap[IO, String, Set[lsp.Diagnostic]].map(DiagnosticManager.apply)
+    MapRef.ofScalaConcurrentTrieMap[IO, SourceUri, Set[lsp.Diagnostic]].map(DiagnosticManager.apply)
 }

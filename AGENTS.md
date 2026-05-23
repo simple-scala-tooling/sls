@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to AI agents when working with code in this repository.
 
 ## Build / test commands
 
@@ -11,6 +11,7 @@ The build is Mill 1.1.6 (Scala 3.8.3). Use the repo-local launcher `./mill`. CI 
 - Run one Weaver suite or test: `./mill sls.test --only 'org.scala.abusers.sls.TextDocumentSyncSuite'` (Weaver via `weaver.framework.CatsEffect`)
 - Launch the LSP from sources: `./mill sls.run`
 - Build the Zinc CLI fat jar: `./mill zincCli.assembly`
+- Build the SLS fat jar: `./mill sls.assembly` (output: `out/sls/assembly.dest/out.jar`)
 - Compile everything: `./mill __.compile`
 - Scalafix (RemoveUnused): `./mill __.fix` — scalac flag `-Wunused:all` is on for every module
 - Format: `scalafmt` (config in `.scalafmt.conf`, version 3.11.0). The nix devshell wires `treefmt` for both scalafmt and nixpkgs-fmt.
@@ -34,6 +35,18 @@ This repo hosts two cooperating servers plus the Smithy contracts that define th
 - `exampleZincCliClient` — reference client that spawns `zincCli` and drives it. Useful when iterating on CSP without the full LSP.
 - `profilingRuntime` — reusable `ProfilingIOApp` (Cats Effect IOApp + Pyroscope agent + otel4s SDK + IORuntime metrics). Both `sls` and any future server should extend this rather than plain `IOApp` to inherit telemetry.
 - `testModule` — a small Scala 3 sources fixture compiled and fed to `exampleZincCliClient` at runtime.
+
+### Request flow
+
+```
+LSP Client → (JSON-RPC/stdio) → SimpleLanguageServer → ServerImpl
+  ServerImpl uses:
+    ├─ PresentationCompilerProvider (completions, hover, definitions, etc.)
+    ├─ BspStateManager (talks to Mill via BSP for build info)
+    ├─ CspClient (talks to zinc-cli subprocess for incremental compilation)
+    ├─ TextDocumentSyncManager (open file buffers)
+    └─ DiagnosticManager (error/warning publishing)
+```
 
 ### How sls works at runtime
 
@@ -64,6 +77,10 @@ The Metals presentation compiler returns `org.eclipse.lsp4j.*` types; the smithy
 
 When changing compile-output paths or BSP/CSP boundaries, keep all three in sync: the PC classpath in `BspStateManager`/`ScalaBuildTargetInformation`, the CSP `CompileOutput.outputJar`, and any client expectations.
 
+## Testing
+
+Tests use **Weaver-Cats** (`SimpleIOSuite`). Test sources are under `<module>/test/src/`.
+
 ## Conventions
 
 - Scala 3 with significant indentation **disabled** (`runner.dialectOverride.allowSignificantIndentation = false`) — use braces.
@@ -71,9 +88,74 @@ When changing compile-output paths or BSP/CSP boundaries, keep all three in sync
 - `-Wunused:all` is on and Scalafix runs `RemoveUnused` — unused symbols will fail the build under `./mill __.fix`.
 - All effectful code is `cats.effect.IO`; streaming is `fs2`; JSON-RPC is `jsonrpclib-fs2`.
 
+## Development Principles
+
+### 1. Think Before Coding
+
+Don't assume. Don't hide confusion. Surface tradeoffs.
+
+Before implementing:
+
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them — don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
+
+### 2. Simplicity First
+
+Minimum code that solves the problem. Nothing speculative.
+
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
+
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+
+### 3. Surgical Changes
+
+Touch only what you must. Clean up only your own mess.
+
+When editing existing code:
+
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it — don't delete it.
+
+When your changes create orphans:
+
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
+
+The test: every changed line should trace directly to the user's request.
+
+### 4. Goal-Driven Execution
+
+Define success criteria. Loop until verified.
+
+Transform tasks into verifiable goals:
+
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
+
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
+### 5. Don't write tests that test the compiler
+
+Examples are testing match exhaustivity, type system, etc.
+
 ## Cellar
 
-When you need the API of a JVM dependency, use cellar. Always prefer cellar over hallucinating API signatures.
+When you need the API of a JVM dependency, use cellar. Always prefer cellar over hallucinating API signatures, and favor cellar over metals-mcp for API discovery.
 
 ### Project-aware commands (run from project root)
 
@@ -102,10 +184,10 @@ Coordinates must be explicit: `group:artifact_3:version` (use `latest` for newes
 
 ### Workflow
 
-1. **Don't know the package?** -> `cellar search <query>` or `cellar search-external <coordinate> <query>`
-2. **Know the package, not the type?** -> `cellar list <package>` or `cellar list-external <coordinate> <package>`
-3. **Know the type?** -> `cellar get <fqn>` or `cellar get-external <coordinate> <fqn>`
-4. **Need the source?** -> `cellar get-source <coordinate> <fqn>`
+1. **Don't know the package?** → `cellar search <query>` or `cellar search-external <coordinate> <query>`
+2. **Know the package, not the type?** → `cellar list <package>` or `cellar list-external <coordinate> <package>`
+3. **Know the type?** → `cellar get <fqn>` or `cellar get-external <coordinate> <fqn>`
+4. **Need the source?** → `cellar get-source <coordinate> <fqn>`
 
 ## Good default workflow
 
