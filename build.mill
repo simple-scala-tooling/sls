@@ -17,6 +17,7 @@ import smithy4s.codegen.mill.*
 
 val jsonrpcVersion = "0.1.0"
 val smithyVersion  = "1.70.0"
+val scala3Version  = "3.8.3"
 
 trait CommonScalaModule extends ScalaModule with ScalafixModule {
   override def repositoriesTask: Task[Seq[Repository]] = Task.Anon {
@@ -28,7 +29,7 @@ trait CommonScalaModule extends ScalaModule with ScalafixModule {
     ) ++ super.repositoriesTask()
   }
 
-  def scalaVersion  = "3.8.3"
+  def scalaVersion  = scala3Version
   def scalacOptions = Seq("-Wunused:all", "-rewrite", "-no-indent")
 }
 
@@ -97,8 +98,10 @@ object sls extends CommonScalaModule {
     mvn"com.evolution::scache:5.1.2",
     mvn"org.typelevel::cats-parse:1.1.0",
     mvn"io.get-coursier:interface:1.0.28",
-    mvn"org.scala-lang::scala3-tasty-inspector:3.8.1",
+    mvn"org.scala-lang::scala3-tasty-inspector:${scala3Version}",
     mvn"org.ow2.asm:asm:9.6",
+    mvn"com.github.plokhotnyuk.jsoniter-scala::jsoniter-scala-core:2.30.5",
+    mvn"com.github.plokhotnyuk.jsoniter-scala::jsoniter-scala-macros:2.30.5",
   )
 
   def javacOptions = Seq(

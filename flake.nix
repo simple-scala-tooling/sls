@@ -9,9 +9,11 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     cellar.url = "github:VirtusLab/cellar";
+    scala-cli-nix.url = "github:scala-nix/scala-cli-nix";
+    scala-cli-nix.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = inputs@{ nixpkgs, flake-parts, cellar, ... }:
+  outputs = inputs@{ nixpkgs, flake-parts, cellar, scala-cli-nix, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
       systems = [ "x86_64-linux" "aarch64-darwin" "x86_64-darwin" ];
       imports = [
@@ -21,12 +23,13 @@
         let
           pkgs = import nixpkgs {
             inherit system;
-            overlays = [ cellar.overlays.default ];
+            overlays = [ cellar.overlays.default scala-cli-nix.overlays.default ];
           };
+          langousitneTracer = pkgs.callPackage ./nix/scala-cli-nix/langoustine-tracer { };
         in
         {
           devShells.default = pkgs.mkShell {
-            packages = [ pkgs.jdk21 pkgs.cellar ];
+            packages = [ pkgs.jdk21 pkgs.cellar pkgs.scala-cli-nix-cli langousitneTracer ];
             inputsFrom = [
               config.treefmt.build.devShell
             ];

@@ -18,7 +18,12 @@ object IndexManagerSpec extends SimpleIOSuite {
   private def createJar(entries: List[(String, Array[Byte])]): IO[AbsolutePath] = IO.blocking {
     val tmp     = os.temp.dir(prefix = "index-manager-test")
     val jarPath = tmp / "test.jar"
-    val zos     = new ZipOutputStream(new FileOutputStream(jarPath.toIO))
+    writeJar(jarPath.toIO, entries)
+    AbsolutePath(jarPath.toNIO)
+  }
+
+  private def writeJar(file: java.io.File, entries: List[(String, Array[Byte])]): Unit = {
+    val zos = new ZipOutputStream(new FileOutputStream(file))
     try
       entries.foreach { case (name, bytes) =>
         zos.putNextEntry(new ZipEntry(name))
@@ -26,7 +31,6 @@ object IndexManagerSpec extends SimpleIOSuite {
         zos.closeEntry()
       }
     finally zos.close()
-    AbsolutePath(jarPath.toNIO)
   }
 
   private def javaClass(name: String, access: Int = Opcodes.ACC_PUBLIC): (String, Array[Byte]) = {
@@ -268,4 +272,17 @@ object IndexManagerSpec extends SimpleIOSuite {
       b <- pi.getSymbol(SymbolId("test.B"))
     } yield expect(a.isEmpty) and expect(b.isEmpty)
   }
+
+  test("dep jar with no Maven coords falls back to bytecode indexing") {
+    val mainCls = javaClass("com/example/NoSrc")
+    for {
+      jar <- createJar(List(mainCls))
+      pi  <- ProjectIndex.empty
+      di  <- DependencyIndex.empty
+      mgr = IndexManager(pi, di, bytecodeIndexer)
+      _     <- mgr.indexJarSafely(jar, Nil)
+      found <- di.getSymbolsByName("NoSrc")
+    } yield expect(found.exists(_.origin.isInstanceOf[SymbolOrigin.DependencyClassfile]))
+  }
+
 }

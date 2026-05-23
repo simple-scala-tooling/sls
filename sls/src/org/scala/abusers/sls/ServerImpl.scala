@@ -97,8 +97,11 @@ class ServerImpl(
       for {
         _       <- bspStateManager.importBuild
         targets <- bspStateManager.getAllTargets
-        _       <- (indexManager.indexDependencies(targets) *>
-          indexManager.indexExistingProjectArtifacts(targets)).handleErrorWith { e =>
+        _       <- List(
+          indexManager.indexJdkSources(),
+          indexManager.indexDependencies(targets),
+          indexManager.indexExistingProjectArtifacts(targets),
+        ).parSequence_.handleErrorWith { e =>
           IO(logger.error("Background indexing failed", e)) *>
             lspClient.logMessage(s"Indexing failed: ${e.getMessage}")
         }.start
@@ -461,8 +464,11 @@ class ServerImpl(
       kind = s.kind.toString,
       owner = s.owner.map(_.value),
       origin = Some(s.origin match {
-        case index.SymbolOrigin.ProjectTasty(bt, uri)    => s"project:$bt ($uri)"
-        case index.SymbolOrigin.DependencyClassfile(jar) => s"dep:$jar"
+        case index.SymbolOrigin.ProjectTasty(bt, uri)      => s"project:$bt ($uri)"
+        case index.SymbolOrigin.ProjectJavaSource(bt, uri) => s"project-java:$bt ($uri)"
+        case index.SymbolOrigin.DependencyClassfile(jar)   => s"dep:$jar"
+        case index.SymbolOrigin.DependencySource(jar, uri) => s"dep-src:$jar ($uri)"
+        case index.SymbolOrigin.JdkSource(zip, uri)        => s"jdk-src:$zip ($uri)"
       }),
       location = s.location.map(l => s"${l.uri}:${l.startLine}:${l.startCol}"),
     )

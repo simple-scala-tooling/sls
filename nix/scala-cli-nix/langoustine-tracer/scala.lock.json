@@ -1,0 +1,229 @@
+{
+  "dependencies": [
+    {
+      "sha256": "ZqPMNWFgRYgWKgK30Fo87ZydK3Erc9pQ1XoeXHvPVBU=",
+      "url": "https://repo1.maven.org/maven2/co/fs2/fs2-core_3/3.13.0/fs2-core_3-3.13.0.jar"
+    },
+    {
+      "sha256": "JbMTI5JZ+IOnbWZzNH8LeGUd9iXxuEVIC7Kd8aHPkk4=",
+      "url": "https://repo1.maven.org/maven2/co/fs2/fs2-io_3/3.13.0/fs2-io_3-3.13.0.jar"
+    },
+    {
+      "sha256": "EDu/fBSnmuXdVMcIX+iwUxIZWqiK85k9X9aeHoIkgH8=",
+      "url": "https://repo1.maven.org/maven2/com/comcast/ip4s-core_3/3.8.0/ip4s-core_3-3.8.0.jar"
+    },
+    {
+      "sha256": "CIhUzl6TZe2Qde8P+cUGKjsfxhnNd/GVUX0x636q3J0=",
+      "url": "https://repo1.maven.org/maven2/com/github/plokhotnyuk/jsoniter-scala/jsoniter-scala-circe_3/2.38.9/jsoniter-scala-circe_3-2.38.9.jar"
+    },
+    {
+      "sha256": "dVAYPNnk1GpfMPBBtel3H1+4FbpUzHHlbIi1nko4yHM=",
+      "url": "https://repo1.maven.org/maven2/com/github/plokhotnyuk/jsoniter-scala/jsoniter-scala-core_3/2.38.9/jsoniter-scala-core_3-2.38.9.jar"
+    },
+    {
+      "sha256": "HMYMsLRDoLMVRkMUGq1cTyt/rcwfq+XVyp6JK9Ty6gw=",
+      "url": "https://repo1.maven.org/maven2/com/indoorvivants/detective/platform_3/0.0.2/platform_3-0.0.2.jar"
+    },
+    {
+      "sha256": "QMwUj4uqt2necokkQ0dqBe7XRxqbXNLLwqR78iytMNM=",
+      "url": "https://repo1.maven.org/maven2/com/lihaoyi/sourcecode_3/0.4.4/sourcecode_3-0.4.4.jar"
+    },
+    {
+      "sha256": "FD3U1rV2G0CVVHHF948zcWS0u21Rlfm1fw4Ruu3TE00=",
+      "url": "https://repo1.maven.org/maven2/com/monovore/decline_3/2.4.1/decline_3-2.4.1.jar"
+    },
+    {
+      "sha256": "T9tZ2Izr1sIbtTVMgL+aak648NbNPb/emzCs336G2O4=",
+      "url": "https://repo1.maven.org/maven2/com/outr/moduload_3/1.1.7/moduload_3-1.1.7.jar"
+    },
+    {
+      "sha256": "kSzYBgMqldEI41W3VXsUGESfS2mscdBHlxgv1lnuPn8=",
+      "url": "https://repo1.maven.org/maven2/com/outr/perfolation_3/1.3.0/perfolation_3-1.3.0.jar"
+    },
+    {
+      "sha256": "cthM/la27lUlkAY2QSjCOyBnPGQEiCpQwj/0UN6SrBE=",
+      "url": "https://repo1.maven.org/maven2/com/outr/scribe-cats_3/3.19.0/scribe-cats_3-3.19.0.jar"
+    },
+    {
+      "sha256": "bwdMjLL66uAYRJe0J/sGJUrcUVeeOoOoMiHiGfiKJQg=",
+      "url": "https://repo1.maven.org/maven2/com/outr/scribe_3/3.19.0/scribe_3-3.19.0.jar"
+    },
+    {
+      "sha256": "Gc1jXUOQU8k1nUcVdBqcEaF1q5ZYHYhPCxZ1yEHyAD4=",
+      "url": "https://repo1.maven.org/maven2/com/twitter/hpack/1.0.2/hpack-1.0.2.jar"
+    },
+    {
+      "sha256": "ccjM+4XlZu2SZfg+69jm2Tqmw1jmDwc0GfrH0F7OT6g=",
+      "url": "https://repo1.maven.org/maven2/io/circe/circe-core_3/0.14.15/circe-core_3-0.14.15.jar"
+    },
+    {
+      "sha256": "1CPI+F1i2BpB51cUBY2l9Qbrvzx5yeAJM7QfVer6Ynw=",
+      "url": "https://repo1.maven.org/maven2/io/circe/circe-jawn_3/0.14.6/circe-jawn_3-0.14.6.jar"
+    },
+    {
+      "sha256": "YzK9LT+hOsVVLjb4UlOPvd4CgTjrFydRDmS3RqBvJEA=",
+      "url": "https://repo1.maven.org/maven2/io/circe/circe-numbers_3/0.14.15/circe-numbers_3-0.14.15.jar"
+    },
+    {
+      "sha256": "eFWmhADTVR/wE5WBxYDjg/TFZbWHq+hqamryFgXznaE=",
+      "url": "https://repo1.maven.org/maven2/io/github/cquiroz/scala-java-time-tzdb_3/2.6.0/scala-java-time-tzdb_3-2.6.0.jar"
+    },
+    {
+      "sha256": "StwZB224GFUrH0JfMKzhxgNUx8sBfgi/EizK7STi5iw=",
+      "url": "https://repo1.maven.org/maven2/io/github/cquiroz/scala-java-time_3/2.6.0/scala-java-time_3-2.6.0.jar"
+    },
+    {
+      "sha256": "qz79qMRpVEMid4valGtM1fhm4Mrfa+qVxKXOyy5cPS0=",
+      "url": "https://repo1.maven.org/maven2/org/http4s/http4s-circe_3/0.23.26/http4s-circe_3-0.23.26.jar"
+    },
+    {
+      "sha256": "lYNqfaQldK34ALprUIT6jOj8UZeCIpYFXKZ0eiWpERo=",
+      "url": "https://repo1.maven.org/maven2/org/http4s/http4s-core_3/0.23.26/http4s-core_3-0.23.26.jar"
+    },
+    {
+      "sha256": "5+dV55MJFaCEUGbquDDCnmxiXw0n1yAkMxkdPejBdM4=",
+      "url": "https://repo1.maven.org/maven2/org/http4s/http4s-crypto_3/0.2.4/http4s-crypto_3-0.2.4.jar"
+    },
+    {
+      "sha256": "LQEqq+newAMlr0Pzn5d4+oJrpo22ljihSmfSGfmZ9TM=",
+      "url": "https://repo1.maven.org/maven2/org/http4s/http4s-dsl_3/0.23.26/http4s-dsl_3-0.23.26.jar"
+    },
+    {
+      "sha256": "hgWwbVs36yLMLK/j0rKklJDN40HWrgvvq50ZuMbgRZs=",
+      "url": "https://repo1.maven.org/maven2/org/http4s/http4s-ember-core_3/0.23.26/http4s-ember-core_3-0.23.26.jar"
+    },
+    {
+      "sha256": "5Hmy28XIjPyfOMbp8f+HjTXoAA7mvR8hfIUQUKuKWPQ=",
+      "url": "https://repo1.maven.org/maven2/org/http4s/http4s-ember-server_3/0.23.26/http4s-ember-server_3-0.23.26.jar"
+    },
+    {
+      "sha256": "l7K6nVXcYLiTU/CcNeh8PgfjWPsA2v9MQaoelUmufkg=",
+      "url": "https://repo1.maven.org/maven2/org/http4s/http4s-jawn_3/0.23.26/http4s-jawn_3-0.23.26.jar"
+    },
+    {
+      "sha256": "J3dprOgwlqcIUr6BnvY21TQBxrTvQ7F7J5BlF75/xto=",
+      "url": "https://repo1.maven.org/maven2/org/http4s/http4s-server_3/0.23.26/http4s-server_3-0.23.26.jar"
+    },
+    {
+      "sha256": "UrDEb42s5SWM3C5uSHl0CKb0XXUcddJ9tY34QJAA1YA=",
+      "url": "https://repo1.maven.org/maven2/org/log4s/log4s_3/1.10.0/log4s_3-1.10.0.jar"
+    },
+    {
+      "sha256": "kg9il5KTBpz3IYZfkx5C+fewsnIO6fap3f92oZ7PjU4=",
+      "url": "https://repo1.maven.org/maven2/org/portable-scala/portable-scala-reflect_2.13/1.1.3/portable-scala-reflect_2.13-1.1.3.jar"
+    },
+    {
+      "sha256": "i8O4+FbX/9IfoND+WnKczaEiizlBLzIANRl5gx5inUg=",
+      "url": "https://repo1.maven.org/maven2/org/scala-lang/modules/scala-collection-compat_3/2.11.0/scala-collection-compat_3-2.11.0.jar"
+    },
+    {
+      "sha256": "Hrsrb55OtAIkl8GbHh6CUBnAhRT5YqqsGXFF+I7XMPE=",
+      "url": "https://repo1.maven.org/maven2/org/scala-lang/scala-library/2.13.16/scala-library-2.13.16.jar"
+    },
+    {
+      "sha256": "oW4Eb0qd+eDQ4LxUv2KYyU19hnRX97O2gpGojFaLktA=",
+      "url": "https://repo1.maven.org/maven2/org/scala-lang/scala3-library_3/3.3.7/scala3-library_3-3.3.7.jar"
+    },
+    {
+      "sha256": "zkt9Px1aK0IbNyTnS4ouQ0VqzKgUH8AqLpb8l3LBmMA=",
+      "url": "https://repo1.maven.org/maven2/org/scodec/scodec-bits_3/1.2.4/scodec-bits_3-1.2.4.jar"
+    },
+    {
+      "sha256": "0+9XXj5JeWeNwBvx3M5RAhSTtNEft/G+itmCh3wWocA=",
+      "url": "https://repo1.maven.org/maven2/org/slf4j/slf4j-api/1.7.36/slf4j-api-1.7.36.jar"
+    },
+    {
+      "sha256": "wnUda2sCZQ5WBltrWv/BFt4Yb5yOR1GdW8WHKJkfzkE=",
+      "url": "https://repo1.maven.org/maven2/org/typelevel/algebra_3/2.13.0/algebra_3-2.13.0.jar"
+    },
+    {
+      "sha256": "em51uabtYPnNNZleNiI15Pv/qathq95kBOqAO98dArA=",
+      "url": "https://repo1.maven.org/maven2/org/typelevel/case-insensitive_3/1.4.0/case-insensitive_3-1.4.0.jar"
+    },
+    {
+      "sha256": "nbB0E8TxM/Gg3rgFgqUVtKlL+0vBw/cCaxVRi13S3u0=",
+      "url": "https://repo1.maven.org/maven2/org/typelevel/cats-collections-core_3/0.9.10/cats-collections-core_3-0.9.10.jar"
+    },
+    {
+      "sha256": "4qv83+BBzgjYQHQSsJ1V6zPrhWVcIsnIgVcS06rWM8Y=",
+      "url": "https://repo1.maven.org/maven2/org/typelevel/cats-core_3/2.13.0/cats-core_3-2.13.0.jar"
+    },
+    {
+      "sha256": "cg+MS9PBApVijx7gC/AppPhme8LRCWCnJfvii3bSLrY=",
+      "url": "https://repo1.maven.org/maven2/org/typelevel/cats-effect-kernel_3/3.7.0/cats-effect-kernel_3-3.7.0.jar"
+    },
+    {
+      "sha256": "4R9iFf79tJXhAkte+mhYKSynYIbWvWnz2wKystKHTj4=",
+      "url": "https://repo1.maven.org/maven2/org/typelevel/cats-effect-std_3/3.7.0/cats-effect-std_3-3.7.0.jar"
+    },
+    {
+      "sha256": "ON2fvY+NKs4fBws94910kqTS/dxJgc2OpIATni5aJPc=",
+      "url": "https://repo1.maven.org/maven2/org/typelevel/cats-effect_3/3.7.0/cats-effect_3-3.7.0.jar"
+    },
+    {
+      "sha256": "pq+q0nTioPu9GJv+Og6RgQvVYnRVc5lQEZQ0J+pIkEA=",
+      "url": "https://repo1.maven.org/maven2/org/typelevel/cats-kernel_3/2.13.0/cats-kernel_3-2.13.0.jar"
+    },
+    {
+      "sha256": "CD+Y1hHV5K+QAOm55XoWNfvAPTOHLyGg5U08uQxDngY=",
+      "url": "https://repo1.maven.org/maven2/org/typelevel/cats-mtl_3/1.6.0/cats-mtl_3-1.6.0.jar"
+    },
+    {
+      "sha256": "tf8xNAyec0LYl6bj7MCPdFp51jfGjt7Y/hjJMss4ey0=",
+      "url": "https://repo1.maven.org/maven2/org/typelevel/cats-parse_3/1.0.0/cats-parse_3-1.0.0.jar"
+    },
+    {
+      "sha256": "HCr2+3u/iU7T7OEcER2YDxKDAC70pq+TQjCB0DFtQLs=",
+      "url": "https://repo1.maven.org/maven2/org/typelevel/idna4s-core_3/0.1.0/idna4s-core_3-0.1.0.jar"
+    },
+    {
+      "sha256": "01in804GUWL9VjS7z2N69PAFzQS39d4UdYZhX5eYDO0=",
+      "url": "https://repo1.maven.org/maven2/org/typelevel/jawn-fs2_3/2.4.0/jawn-fs2_3-2.4.0.jar"
+    },
+    {
+      "sha256": "khew+ryD7fpkJfYvtk2Ij/dj6ebaxvb+ZJEok0noZNE=",
+      "url": "https://repo1.maven.org/maven2/org/typelevel/jawn-parser_3/1.5.1/jawn-parser_3-1.5.1.jar"
+    },
+    {
+      "sha256": "vJhvN1hmgPuXCCyuK+zTj0sP0Z306Nqc3g8g76f45qk=",
+      "url": "https://repo1.maven.org/maven2/org/typelevel/literally_3/1.2.0/literally_3-1.2.0.jar"
+    },
+    {
+      "sha256": "mXB5ZqqTR10pDskUoGcCMjNKQJ8u0vTL7qltJVpdWbw=",
+      "url": "https://repo1.maven.org/maven2/org/typelevel/log4cats-core_3/2.6.0/log4cats-core_3-2.6.0.jar"
+    },
+    {
+      "sha256": "X2boi8qRnRSDUkzBWq9Tqf5F5dybyuXT9iKLw4pi/bM=",
+      "url": "https://repo1.maven.org/maven2/org/typelevel/log4cats-slf4j_3/2.6.0/log4cats-slf4j_3-2.6.0.jar"
+    },
+    {
+      "sha256": "lPG6ccL3cvJIZ8cGucHNiqD/rD7iT2NK5OP51/583/I=",
+      "url": "https://repo1.maven.org/maven2/org/typelevel/vault_3/3.5.0/vault_3-3.5.0.jar"
+    },
+    {
+      "sha256": "OgluFLz51CC05CeSSkf9Ioybw3YVp0YAvy+r1GkuFAc=",
+      "url": "https://repo1.maven.org/maven2/tech/neander/jsonrpclib-core_3/0.1.1/jsonrpclib-core_3-0.1.1.jar"
+    },
+    {
+      "sha256": "hH+tVp+eHVL8UF8ejzV4HjGqw6fuchtQSdHnEB/7ffc=",
+      "url": "https://repo1.maven.org/maven2/tech/neander/jsonrpclib-fs2_3/0.1.1/jsonrpclib-fs2_3-0.1.1.jar"
+    },
+    {
+      "sha256": "W9ksXK3/bi1Ks59MXrswZlVxaMg7gm5hbb9jAoY+5Z0=",
+      "url": "https://repo1.maven.org/maven2/tech/neander/langoustine-lsp_3/0.1.0/langoustine-lsp_3-0.1.0.jar"
+    },
+    {
+      "sha256": "H9z/dfkf9bNvXizAZdauxJtTvwUNaxHjyVV8c1u6Lww=",
+      "url": "https://repo1.maven.org/maven2/tech/neander/langoustine-tracer-shared_3/0.1.0/langoustine-tracer-shared_3-0.1.0.jar"
+    },
+    {
+      "sha256": "rThoekhCMCx9yA64P00OBUjH3zBCxctQBOMVKPHnLyE=",
+      "url": "https://repo1.maven.org/maven2/tech/neander/langoustine-tracer_3/0.1.0/langoustine-tracer_3-0.1.0.jar"
+    }
+  ],
+  "javaOptions": [
+  ],
+  "kind": "coursier-app",
+  "mainClass": "langoustine.tracer.LangoustineTracer",
+  "version": 9
+}
