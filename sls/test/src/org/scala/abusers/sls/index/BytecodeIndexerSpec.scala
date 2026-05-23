@@ -159,10 +159,10 @@ object BytecodeIndexerSpec extends SimpleIOSuite {
     for {
       jar  <- createJar(List(base, child))
       syms <- indexer.indexJar(jar)
-      childSym  = syms.find(_.name == "Child")
-      parentIds = childSym.toList.flatMap(_.parents).map(_.value)
-    } yield expect(parentIds.contains("com.example.Base")) and
-      expect(parentIds.contains("java.io.Serializable"))
+      childSym = syms.find(_.id == SymbolId("com.example.Child"))
+      parents  = childSym.toList.flatMap(_.parents)
+    } yield expect(parents.contains(SymbolId("com.example.Base"))) and
+      expect(parents.contains(SymbolId("java.io.Serializable")))
   }
 
   test("all symbols have location = None and DependencyClassfile origin") {

@@ -271,6 +271,7 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
       sourceUri.foreach { uri =>
         val kind =
           if sym.flags.is(Flags.Given) then SymbolKind.Given
+          else if sym.flags.is(Flags.Enum) && sym.flags.is(Flags.Case) then SymbolKind.EnumCase
           else if sym.flags.is(Flags.Mutable) then SymbolKind.Var
           else SymbolKind.Val
         val vis = extractVisibility(sym)
@@ -372,8 +373,8 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
     def classKind(sym: Symbol): SymbolKind = {
       val flags = sym.flags
       if flags.is(Flags.Trait) then SymbolKind.Trait
-      else if flags.is(Flags.Module) then SymbolKind.Object
       else if flags.is(Flags.Enum) && flags.is(Flags.Case) then SymbolKind.EnumCase
+      else if flags.is(Flags.Module) then SymbolKind.Object
       else if flags.is(Flags.Enum) then SymbolKind.Enum
       else SymbolKind.Class
     }
