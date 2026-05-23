@@ -107,10 +107,7 @@ object ProjectIndexSpec extends SimpleIOSuite {
     } yield expect(result.size == 2)
   }
 
-  test("getReferences order is prepend-on-insert within a file — Phase 3 regression guard") {
-    // ProjectIndex.addFileToState prepends each new ref (ref :: list).
-    // Insertion order for [r1, r2, r3] produces list [r3, r2, r1].
-    // Phase 3's CoreState.add rewrite must not silently change this.
+  test("getReferences returns every inserted ref, with no loss or duplication") {
     val r1 = SymbolReference(SymbolId("pkg.T"), Location(fileA, 1, 0, 1, 5), ReferenceKind.Call)
     val r2 = SymbolReference(SymbolId("pkg.T"), Location(fileA, 2, 0, 2, 5), ReferenceKind.Call)
     val r3 = SymbolReference(SymbolId("pkg.T"), Location(fileA, 3, 0, 3, 5), ReferenceKind.Call)
@@ -118,7 +115,7 @@ object ProjectIndexSpec extends SimpleIOSuite {
       idx  <- ProjectIndex.empty
       _    <- idx.updateFiles(Map(fileA -> (Nil, List(r1, r2, r3))))
       refs <- idx.getReferences(SymbolId("pkg.T"))
-    } yield expect(refs.map(_.location.startLine) == List(3, 2, 1))
+    } yield expect(refs.size == 3) and expect(refs.toSet == Set(r1, r2, r3))
   }
 
   test("updateFiles replaces — not appends — refs for the same URI") {

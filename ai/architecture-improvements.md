@@ -54,7 +54,7 @@ Add `CrossProducerSpec`: for each fixture name, index via `TastyIndexer`, `Bytec
 
 Same input indexed twice → same `Map[SymbolId, IndexedSymbol]`. Cheapest way to catch nondeterminism in id production. **Watch out for list ordering:** `IndexedSymbol.parents: List[SymbolId]` and per-file `List[SymbolReference]` are ordered; TASTy traversal order can shift between runs. Either assert on `.toSet`-converted views, or fix ordering in the producer (sort by some stable key on emit). Pick one and document.
 
-**Explicitly assert reference-list order** in `ProjectIndex.references: Map[SymbolId, List[SymbolReference]]`. Today's prepend-on-insert (`ProjectIndex.scala:194`) means iteration order is "most recently added first." Phase 3's `CoreState.add` rewrite could silently flip this. Without an ordering assertion here, Phase 3 has an invisible-regression path.
+**Assert reference set, not order**, in `ProjectIndex.references: Map[SymbolId, List[SymbolReference]]`. Insertion order of the underlying `List` is an implementation detail — locking it in to "prepend-on-insert" form was an arbitrary pin on internal behavior. What matters is that every inserted ref comes back, exactly once. Phase 3's `CoreState.add` rewrite is free to change iteration order; the set-based assertion stays green.
 
 ### Decision: orchestration bugs uncovered by step 2
 
@@ -205,9 +205,9 @@ Overload resolution is the load-bearing constraint here. Three concrete options:
 - **Bloom filters are not aggregate state.** `DependencyIndex.jarFilters: Map[String, BloomFilter]` holds one filter per jar, built once at `addJar` time (`DependencyIndex.scala:89-97`). `CoreState` doesn't touch Bloom filters — they stay on `DependencyIndex.State` and are managed by `addJarToState` directly. Phase 3 doesn't change Bloom-filter semantics.
 - **Dependency jars have no removal path today.** `CoreState.remove` is exercised by project files only. If a future feature needs to evict a jar (e.g., reindexing on classpath change), that's a separate piece of work, not Phase 3.
 
-**Reference-ordering risk (linked to Phase 0 step 4):** `addFileToState` prepends new refs (`ProjectIndex.scala:194`). If `CoreState.add` reverses iteration or batches additions in a different order, `references.get(id)` returns a list in a different order. Phase 0 step 4's explicit reference-list ordering assertion is what catches a regression here.
+**Reference-set risk (linked to Phase 0 step 4):** `addFileToState` accumulates refs into `Map[SymbolId, List[SymbolReference]]`. The real invariant — no ref lost, no ref duplicated — is what Phase 0 step 4 asserts via a set comparison. Iteration order is intentionally unconstrained.
 
-**Success criterion:** the two state-update sites are each ≤20 lines (vs ~55 today) and share no duplicated trie logic. Existing `ProjectIndexSpec` and `DependencyIndexSpec` stay green without rewrites. Phase 0's reference-list ordering assertion stays green.
+**Success criterion:** the two state-update sites are each ≤20 lines (vs ~55 today) and share no duplicated trie logic. Existing `ProjectIndexSpec` and `DependencyIndexSpec` stay green without rewrites. Phase 0's reference-set assertion stays green.
 
 **Estimate:** 1 day.
 
