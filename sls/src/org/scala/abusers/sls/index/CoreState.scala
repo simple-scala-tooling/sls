@@ -35,6 +35,13 @@ private[index] object CoreState {
       )
     }
 
+  def updateLocations(s: CoreState, updates: Map[SymbolId, Location]): CoreState = {
+    val newSymbols = updates.foldLeft(s.symbols) { case (syms, (id, loc)) =>
+      syms.updatedWith(id)(_.map(_.copy(location = Some(loc))))
+    }
+    s.copy(symbols = newSymbols)
+  }
+
   def remove(s: CoreState, ids: Set[SymbolId]): CoreState =
     ids.foldLeft(s) { (acc, id) =>
       acc.symbols.get(id) match {

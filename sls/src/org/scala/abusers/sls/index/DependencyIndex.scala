@@ -39,12 +39,7 @@ class DependencyIndex private (state: Ref[IO, DependencyIndex.State]) {
     state.update(addJarToState(_, jarPath, symbols))
 
   def updateLocations(updates: Map[SymbolId, Location]): IO[Unit] =
-    state.update { s =>
-      val newSymbols = updates.foldLeft(s.core.symbols) { case (syms, (id, loc)) =>
-        syms.updatedWith(id)(_.map(_.copy(location = Some(loc))))
-      }
-      s.copy(core = s.core.copy(symbols = newSymbols))
-    }
+    state.update(s => s.copy(core = CoreState.updateLocations(s.core, updates)))
 
   def jarMightContain(jarPath: String, name: String): IO[Boolean] =
     state.get.map { s =>
