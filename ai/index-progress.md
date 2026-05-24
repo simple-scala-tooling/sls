@@ -27,5 +27,7 @@
 
 - **Phase 2** `SymbolIndexer` trait + `IndexStrategy` ADT — adapter layer flattens each producer's native return type (TastyIndexer's `Map`, BytecodeIndexer's raw list, JavaIndexer's `Map`) into a uniform `IO[List[IndexedSymbol]]`. `IndexManager.indexJarSafely` is now `chooseStrategy → runStrategy → addJar` composition (5 lines). Deferred TASTy-crash → bytecode fallback test landed — a JAR with corrupted `.tasty` + valid `.class` entries now exercises the error-recovery path end-to-end.
 
+- **Phase 3** `CoreState` deduplication — extracted `private[index] CoreState(symbols, nameTrie, camelCaseTrie, subtypes)` with `add(List[IndexedSymbol])` / `remove(Set[SymbolId])`. `ProjectIndex.State` wraps `core` + `byFile` + `references` + `refsByFile`; `DependencyIndex.State` wraps `core` + `jarFilters` + `symbolJar`. The `var nameTrie = ...; nameTrie = nameTrie.insert(...)` accumulators collapsed to `foldLeft` over `CoreState.add`. Wrapping state-update sites are now ~11–22 lines each (down from ~41–55). All existing specs stay green.
+
 ## Next
 - **5.1–5.6** LSP feature handlers (references, workspace/symbol, rename, type hierarchy, didDeleteFiles)
