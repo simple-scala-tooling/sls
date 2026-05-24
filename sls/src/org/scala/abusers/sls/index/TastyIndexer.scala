@@ -345,7 +345,7 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
       } catch {
         case NonFatal(_) =>
           try SymbolId.fromTasty(Nil, Nil, stripDollar(sym.name), isType = false)
-          catch { case NonFatal(_) => SymbolId(Nil, Nil, "<unknown>", None) }
+          catch { case NonFatal(_) => SymbolId.tpe(Nil, Nil, "<unknown>") }
       }
 
     /** Type vs term decision. Packages are types; objects (Module flag) are terms even though their module-class is

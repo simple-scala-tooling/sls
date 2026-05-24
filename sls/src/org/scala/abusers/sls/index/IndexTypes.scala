@@ -29,7 +29,9 @@ case class SymbolId(
   def render: String = {
     val parts = pkg ++ owners
     val base  = if parts.isEmpty then name else (parts :+ name).mkString(".")
-    member.fold(base)(_ => base + "()")
+    // Terms render with parens; the inside carries the overload disambig once Phase 2 starts setting it.
+    // Empty parens on vals/objects look a bit odd but keep type-vs-term distinguishable in debug output.
+    member.fold(base)(m => s"$base(${m.disambig.getOrElse("")})")
   }
   override def toString: String = render
 }

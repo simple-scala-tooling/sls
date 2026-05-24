@@ -48,6 +48,26 @@ object IndexTypesSpec extends SimpleIOSuite {
     IO(expect(id == SymbolId.term(List("scala"), List("Predef"), "println")))
   }
 
+  test("fromSemanticDb collapses `.` and `#` separators in the owner chain") {
+    // Lock-in for the Phase 1 simplification documented on `fromSemanticDb`: owner separators are not preserved,
+    // so an inner-class term symbol coalesces to the same id regardless of which form the SemanticDB writer chose.
+    val a = SymbolId.fromSemanticDb("pkg/Outer.Inner#run().")
+    val b = SymbolId.fromSemanticDb("pkg/Outer#Inner.run().")
+    IO(
+      expect(a == SymbolId.term(List("pkg"), List("Outer", "Inner"), "run")) &&
+        expect(a == b)
+    )
+  }
+
+  test("fromJava routes through fromTasty and respects the isType flag") {
+    val cls    = SymbolId.fromJava(List("pkg"), Nil, "LibJ", isType = true)
+    val method = SymbolId.fromJava(List("pkg"), List("LibJ"), "compute", isType = false)
+    IO(
+      expect(cls == SymbolId.tpe(List("pkg"), Nil, "LibJ")) &&
+        expect(method == SymbolId.term(List("pkg"), List("LibJ"), "compute"))
+    )
+  }
+
   test("render produces a stable human-readable string") {
     val cls   = SymbolId.tpe(List("crossproducer"), Nil, "Lib")
     val mthod = SymbolId.term(List("crossproducer"), List("Lib"), "compute")
@@ -55,5 +75,10 @@ object IndexTypesSpec extends SimpleIOSuite {
       expect(cls.render == "crossproducer.Lib") &&
         expect(mthod.render == "crossproducer.Lib.compute()")
     )
+  }
+
+  test("render includes Member.disambig once it's set (Phase 2 forward-compat)") {
+    val overloaded = SymbolId(List("pkg"), List("Lib"), "compute", Some(Member(Some("(I)I"))))
+    IO(expect(overloaded.render == "pkg.Lib.compute((I)I)"))
   }
 }
