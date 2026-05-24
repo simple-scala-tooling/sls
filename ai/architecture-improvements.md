@@ -342,6 +342,44 @@ Concretely: something like a `TestWorkspace` helper that takes a `Map[String, St
 
 **Migration signal:** when a test needs to assert something about compilation-driven updates (`onCompilationComplete`, the TASTy-crash-to-bytecode fallback, incremental re-index on edit) and the pre-compiled JAR can't express it — that's when to build the real infra. Don't build it speculatively.
 
+---
+
+## Future work — Scala source-parse fallback (for discussion)
+
+**Today's fallback chain for a Scala dep with TASTy:** TASTy → bytecode. For Java deps it's already: `JavaIndexer` (sources jar) → bytecode. The Scala path could mirror the Java one: TASTy → Scala source parse (sources jar) → bytecode.
+
+**Why it's tempting:**
+
+- Mirrors the Java path — symmetry is a tiebreaker.
+- Source-parse gives **real source locations**, so goto-definition lands in the `.scala` file instead of a disassembled `.class`. Bytecode fallback strips locations entirely (`location = None` in `BytecodeIndexer`).
+- For pure TASTy format-version skew (newer dotty than the inspector), a parser at the current compiler version succeeds where the inspector doesn't.
+
+**Why it's not free:**
+
+- Most TASTy crashes are **classpath mismatches** (jar pickled against lib Y 1.0, project has Y 1.1) or **internal compiler bugs** — neither is fixed by source parsing. The hermetic-CP resolution already attempts to fix the first; source parsing has the same classpath problem at typing time.
+- A **pure (untyped) parse** can't resolve `import a.b.C` → a `SymbolId`, so the symbols are name-only and don't connect to the rest of the index. A **typed parse** is basically a re-compile and hits the same crashes TASTy did.
+- No `ScalaSourceIndexer` exists today. Building one means: dotty parser + an import resolver good enough to produce canonical `SymbolId`s, plus a fourth producer that has to canonicalize through Phase 1 alongside TASTy / bytecode / Java.
+- It fires rarely (the ~5% format-skew case), so the cost-per-fix is high.
+
+**Comparison:**
+
+| | TASTy | Untyped Scala parse | Bytecode |
+|---|---|---|---|
+| Symbol ids | canonical | name-only (imports unresolved) | JVM-shape |
+| Source locations | exact | exact | none |
+| Parents | resolved | textual extends name only | resolved (constant pool) |
+| Overload signatures | full | none | JVM descriptors |
+
+Source-parse wins on locations; bytecode wins on parents and signatures. Current order optimises for the latter — and that's the right call for autocomplete / find-references. The wrong call for goto-definition into lib code.
+
+**When to revisit:**
+
+- After Phase 1 (canonical `SymbolId`) — the question stops being a correctness question (no more `Cls.foo` vs `Cls#foo` drift) and becomes a quality question.
+- After hermetic-CP resolution is hardened — fewer TASTy crashes overall, so the fallback fires less and the source-parse window shrinks further.
+- When real telemetry shows users hurt by missing `.scala` source locations on dep symbols.
+
+**Don't build speculatively.** If we do build it, the right shape is `DepStrategy.ScalaSources(jar, cp)` slotted between `TastyHermetic` and `Bytecode` in the Phase 2 strategy ADT — not a fourth ad-hoc branch in `indexJarSafely`.
+
 ## Estimate
 
 Rough order, single engineer. Communicate as ranges, not commitments.
