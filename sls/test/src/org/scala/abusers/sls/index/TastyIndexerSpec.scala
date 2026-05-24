@@ -4,8 +4,8 @@ import cats.effect.IO
 import org.scala.abusers.sls.SourceUri
 import weaver.*
 
-/** Indexes the pre-compiled `tastyIndexerFixture` JAR published to `~/.m2` by
-  * `sls.test.forkArgs` — see `IndexTestFixtures`. No dotc at test time.
+/** Indexes the pre-compiled `tastyIndexerFixture` JAR published to `~/.m2` by `sls.test.forkArgs` — see
+  * `IndexTestFixtures`. No dotc at test time.
   */
 object TastyIndexerSpec extends SimpleIOSuite {
 
@@ -26,8 +26,8 @@ object TastyIndexerSpec extends SimpleIOSuite {
 
   test("simple class with method — both symbols extracted") {
     for {
-      cls    <- findById(SymbolId("fixture.SimpleClass"))
-      method <- findById(SymbolId("fixture.SimpleClass.greet"))
+      cls    <- findById(IndexTestFixtures.tid("fixture.SimpleClass"))
+      method <- findById(IndexTestFixtures.mid("fixture.SimpleClass.greet"))
     } yield expect(cls.isDefined) and
       expect(cls.exists(_.kind == SymbolKind.Class)) and
       expect(method.isDefined) and
@@ -36,53 +36,55 @@ object TastyIndexerSpec extends SimpleIOSuite {
 
   test("trait with abstract method — Trait kind") {
     for {
-      sym <- findById(SymbolId("fixture.Animal"))
+      sym <- findById(IndexTestFixtures.tid("fixture.Animal"))
     } yield expect(sym.exists(_.kind == SymbolKind.Trait))
   }
 
   test("case class — class extracted") {
     for {
-      sym <- findById(SymbolId("fixture.Point"))
+      sym <- findById(IndexTestFixtures.tid("fixture.Point"))
     } yield expect(sym.exists(_.kind == SymbolKind.Class))
   }
 
   test("enum with cases — Enum kind and EnumCase kind for each case") {
     for {
-      sym <- findById(SymbolId("fixture.Color"))
+      sym  <- findById(IndexTestFixtures.tid("fixture.Color"))
       syms <- allSymbols
-      red   = syms.find(s => s.name == "Red"   && s.kind == SymbolKind.EnumCase)
+      red   = syms.find(s => s.name == "Red" && s.kind == SymbolKind.EnumCase)
       green = syms.find(s => s.name == "Green" && s.kind == SymbolKind.EnumCase)
-      blue  = syms.find(s => s.name == "Blue"  && s.kind == SymbolKind.EnumCase)
+      blue  = syms.find(s => s.name == "Blue" && s.kind == SymbolKind.EnumCase)
     } yield expect(sym.exists(_.kind == SymbolKind.Enum)) and
       expect(red.isDefined) and expect(green.isDefined) and expect(blue.isDefined)
   }
 
   test("sealed trait children — parent/child relationships") {
     for {
-      circle <- findById(SymbolId("fixture.Circle"))
-      rect   <- findById(SymbolId("fixture.Rectangle"))
-    } yield expect(circle.exists(_.parents.contains(SymbolId("fixture.Shape")))) and
-      expect(rect.exists(_.parents.contains(SymbolId("fixture.Shape"))))
+      circle <- findById(IndexTestFixtures.tid("fixture.Circle"))
+      rect   <- findById(IndexTestFixtures.tid("fixture.Rectangle"))
+    } yield expect(circle.exists(_.parents.contains(IndexTestFixtures.tid("fixture.Shape")))) and
+      expect(rect.exists(_.parents.contains(IndexTestFixtures.tid("fixture.Shape"))))
   }
 
   test("class extending trait — parents list correct") {
     for {
-      sym <- findById(SymbolId("fixture.FriendlyGreeter"))
-    } yield expect(sym.exists(_.parents.contains(SymbolId("fixture.Greeter"))))
+      sym <- findById(IndexTestFixtures.tid("fixture.FriendlyGreeter"))
+    } yield expect(sym.exists(_.parents.contains(IndexTestFixtures.tid("fixture.Greeter"))))
   }
 
   test("method override — Override reference points to overridden symbol") {
     for {
       refs <- allRefs
       overrideRefs = refs.filter(_.referenceKind == ReferenceKind.Override)
-    } yield expect(overrideRefs.exists(_.symbol == SymbolId("fixture.Greeter.greet")))
+    } yield expect(overrideRefs.exists(_.symbol == IndexTestFixtures.mid("fixture.Greeter.greet")))
   }
 
   test("multiple top-level defs — all keyed to same source URI") {
     for {
       result <- indexed
       multiUri = result.find { case (_, (syms, _)) =>
-        syms.exists(_.id == SymbolId("fixture.TopA")) && syms.exists(_.id == SymbolId("fixture.TopB"))
+        syms.exists(_.id == IndexTestFixtures.tid("fixture.TopA")) && syms.exists(
+          _.id == IndexTestFixtures.tid("fixture.TopB")
+        )
       }
     } yield expect(multiUri.isDefined)
   }
@@ -97,9 +99,9 @@ object TastyIndexerSpec extends SimpleIOSuite {
 
   test("visibility — private/protected/public correctly determined") {
     for {
-      secret <- findById(SymbolId("fixture.VisibilityExample.secret"))
-      helper <- findById(SymbolId("fixture.VisibilityExample.helper"))
-      pub    <- findById(SymbolId("fixture.VisibilityExample.publicMethod"))
+      secret <- findById(IndexTestFixtures.mid("fixture.VisibilityExample.secret"))
+      helper <- findById(IndexTestFixtures.mid("fixture.VisibilityExample.helper"))
+      pub    <- findById(IndexTestFixtures.mid("fixture.VisibilityExample.publicMethod"))
     } yield expect(secret.exists(_.visibility == Visibility.Private)) and
       expect(helper.exists(_.visibility == Visibility.Protected)) and
       expect(pub.exists(_.visibility == Visibility.Public))

@@ -337,12 +337,57 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
       } catch { case NonFatal(_) => () }
 
     def mkSymbolId(sym: Symbol): SymbolId =
-      SymbolId(
-        try sym.fullName
-        catch {
-          case NonFatal(_) => sym.name
-        }
-      )
+      try {
+        val isType        = isTypeLike(sym)
+        val name          = stripDollar(sym.name)
+        val (pkg, owners) = collectOwners(sym.maybeOwner)
+        SymbolId.fromTasty(pkg, owners, name, isType)
+      } catch {
+        case NonFatal(_) =>
+          try SymbolId.fromTasty(Nil, Nil, stripDollar(sym.name), isType = false)
+          catch { case NonFatal(_) => SymbolId.tpe(Nil, Nil, "<unknown>") }
+      }
+
+    /** Type vs term decision. Packages are types; objects (Module flag) are terms even though their module-class is
+      * structurally a class; everything else falls back to dotty's class/type/val/def classifiers.
+      */
+    def isTypeLike(sym: Symbol): Boolean = {
+      val flags = sym.flags
+      if flags.is(Flags.Package) then true
+      else if flags.is(Flags.Module) then false
+      else if sym.isClassDef || sym.isTypeDef then true
+      else false
+    }
+
+    /** Walk the owner chain, collecting type-level owners until the first package, then package segments until root.
+      * The returned lists are root-to-leaf.
+      */
+    def collectOwners(start: Symbol): (List[String], List[String]) = {
+      val ownersBuf  = scala.collection.mutable.ListBuffer.empty[String]
+      val packageBuf = scala.collection.mutable.ListBuffer.empty[String]
+      var cur        = start
+      while (!isStopSymbol(cur) && !cur.flags.is(Flags.Package)) {
+        ownersBuf.prepend(stripDollar(cur.name))
+        cur = cur.maybeOwner
+      }
+      while (!isStopSymbol(cur)) {
+        packageBuf.prepend(stripDollar(cur.name))
+        cur = cur.maybeOwner
+      }
+      (packageBuf.toList, ownersBuf.toList)
+    }
+
+    def isStopSymbol(sym: Symbol): Boolean =
+      sym.isNoSymbol || {
+        val n = sym.name
+        n == "<root>" || n == "_root_" || n == "<empty>" || n.isEmpty
+      }
+
+    /** Module-class symbols carry a trailing `$` in some dotty paths; strip it so class `Lib` and object `Lib`'s
+      * owner-name agree.
+      */
+    def stripDollar(n: String): String =
+      if n.endsWith("$") then n.dropRight(1) else n
 
     def sourceFileUri(sym: Symbol): Option[SourceUri] =
       try {

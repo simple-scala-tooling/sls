@@ -3,21 +3,17 @@ package org.scala.abusers.sls.index
 import cats.effect.IO
 import weaver.*
 
-/** Verifies that TastyIndexer, BytecodeIndexer, and JavaIndexer emit the same SymbolId
-  * for the same source-level symbols in the cross-producer fixture (`crossProducerFixture`).
+/** Verifies that TastyIndexer, BytecodeIndexer, and JavaIndexer emit the same SymbolId for the same source-level
+  * symbols in the cross-producer fixture (`crossProducerFixture`).
   *
-  * The fixture JAR is pre-compiled and published to `~/.m2` by `sls.test.forkArgs` — see
-  * `IndexTestFixtures`. No runtime compilation.
+  * The fixture JAR is pre-compiled and published to `~/.m2` by `sls.test.forkArgs` — see `IndexTestFixtures`. No
+  * runtime compilation.
   *
-  * All assertions are ignored until Phase 1 fixes the `Cls.foo` vs `Cls#foo` id mismatch.
-  * When Phase 1 is complete, delete each `ignore(...)` line and watch the tests go green.
-  * The fixture covers: top-level class, companion object, overloaded methods, inner class.
+  * Phase 1 exit signal: these assertions used to be `ignore(...)`'d because TastyIndexer emitted
+  * `crossproducer.Lib.compute` while BytecodeIndexer emitted `crossproducer.Lib#compute`. The canonical [[SymbolId]]
+  * removes that drift; the tests run for real now.
   */
 object CrossProducerSpec extends SimpleIOSuite {
-
-  private val pendingReason =
-    "pending until Phase 1: TastyIndexer emits crossproducer.Lib.compute, " +
-      "BytecodeIndexer emits crossproducer.Lib#compute — canonical SymbolId required"
 
   private def tastySymbols: IO[List[IndexedSymbol]] =
     TastyIndexer("test").indexJar(IndexTestFixtures.crossProducerJar, Nil).map(_.values.flatMap(_._1).toList)
@@ -34,69 +30,54 @@ object CrossProducerSpec extends SimpleIOSuite {
   // ── Top-level class ──────────────────────────────────────────────────────────
 
   test("top-level class id agrees between TastyIndexer and BytecodeIndexer") {
-    ignore(pendingReason) *> {
-      for {
-        tastyIds    <- tastySymbols.map(_.map(_.id).toSet)
-        bytecodeIds <- bytecodeSymbols.map(_.map(_.id).toSet)
-        libId = SymbolId("crossproducer.Lib")
-      } yield expect(tastyIds.contains(libId)) and expect(bytecodeIds.contains(libId))
-    }
+    for {
+      tastyIds    <- tastySymbols.map(_.map(_.id).toSet)
+      bytecodeIds <- bytecodeSymbols.map(_.map(_.id).toSet)
+      libId = SymbolId.tpe(List("crossproducer"), Nil, "Lib")
+    } yield expect(tastyIds.contains(libId)) and expect(bytecodeIds.contains(libId))
   }
 
   test("companion object id agrees between TastyIndexer and BytecodeIndexer") {
-    ignore(pendingReason) *> {
-      for {
-        tastyIds    <- tastySymbols.map(_.map(_.id).toSet)
-        bytecodeIds <- bytecodeSymbols.map(_.map(_.id).toSet)
-        // Both should converge on crossproducer.Lib (module Object kind, no $ in canonical form)
-        libObjId = SymbolId("crossproducer.Lib")
-      } yield expect(tastyIds.exists(_ == libObjId)) and expect(bytecodeIds.exists(_ == libObjId))
-    }
+    for {
+      tastyIds    <- tastySymbols.map(_.map(_.id).toSet)
+      bytecodeIds <- bytecodeSymbols.map(_.map(_.id).toSet)
+      // Companion object is a TERM (the singleton value), distinct from the class id of the same name.
+      libObjId = SymbolId.term(List("crossproducer"), Nil, "Lib")
+    } yield expect(tastyIds.contains(libObjId)) and expect(bytecodeIds.contains(libObjId))
   }
 
   test("overloaded method compute(Int) id agrees between TastyIndexer and BytecodeIndexer") {
     // Phase 1 exit signal: canonical example of the Cls.foo vs Cls#foo bug.
-    // TastyIndexer: crossproducer.Lib.compute  BytecodeIndexer: crossproducer.Lib#compute
-    ignore(pendingReason) *> {
-      for {
-        tastyIds    <- tastySymbols.map(_.map(_.id).toSet)
-        bytecodeIds <- bytecodeSymbols.map(_.map(_.id).toSet)
-        computeId = SymbolId("crossproducer.Lib.compute")
-      } yield expect(tastyIds.contains(computeId)) and expect(bytecodeIds.contains(computeId))
-    }
+    for {
+      tastyIds    <- tastySymbols.map(_.map(_.id).toSet)
+      bytecodeIds <- bytecodeSymbols.map(_.map(_.id).toSet)
+      computeId = SymbolId.term(List("crossproducer"), List("Lib"), "compute")
+    } yield expect(tastyIds.contains(computeId)) and expect(bytecodeIds.contains(computeId))
   }
 
   test("inner class id agrees between TastyIndexer and BytecodeIndexer") {
-    ignore(pendingReason) *> {
-      for {
-        tastyIds    <- tastySymbols.map(_.map(_.id).toSet)
-        bytecodeIds <- bytecodeSymbols.map(_.map(_.id).toSet)
-        innerId = SymbolId("crossproducer.Lib.Inner")
-      } yield expect(tastyIds.contains(innerId)) and expect(bytecodeIds.contains(innerId))
-    }
+    for {
+      tastyIds    <- tastySymbols.map(_.map(_.id).toSet)
+      bytecodeIds <- bytecodeSymbols.map(_.map(_.id).toSet)
+      innerId = SymbolId.tpe(List("crossproducer"), List("Lib"), "Inner")
+    } yield expect(tastyIds.contains(innerId)) and expect(bytecodeIds.contains(innerId))
   }
 
   // ── Java vs. Bytecode ────────────────────────────────────────────────────────
 
   test("Java class LibJ id agrees between JavaIndexer and BytecodeIndexer") {
-    ignore(pendingReason) *> {
-      for {
-        javaIds     <- javaSymbols.map(_.map(_.id).toSet)
-        bytecodeIds <- bytecodeSymbols.map(_.map(_.id).toSet)
-        libJId = SymbolId("crossproducer.LibJ")
-      } yield expect(javaIds.contains(libJId)) and expect(bytecodeIds.contains(libJId))
-    }
+    for {
+      javaIds     <- javaSymbols.map(_.map(_.id).toSet)
+      bytecodeIds <- bytecodeSymbols.map(_.map(_.id).toSet)
+      libJId = SymbolId.tpe(List("crossproducer"), Nil, "LibJ")
+    } yield expect(javaIds.contains(libJId)) and expect(bytecodeIds.contains(libJId))
   }
 
   test("Java overloaded method id agrees between JavaIndexer and BytecodeIndexer") {
-    // JavaIndexer uses sym.fullName → crossproducer.LibJ.compute
-    // BytecodeIndexer uses JVM format → crossproducer.LibJ#compute
-    ignore(pendingReason) *> {
-      for {
-        javaIds     <- javaSymbols.map(_.map(_.id).toSet)
-        bytecodeIds <- bytecodeSymbols.map(_.map(_.id).toSet)
-        computeId = SymbolId("crossproducer.LibJ.compute")
-      } yield expect(javaIds.contains(computeId)) and expect(bytecodeIds.contains(computeId))
-    }
+    for {
+      javaIds     <- javaSymbols.map(_.map(_.id).toSet)
+      bytecodeIds <- bytecodeSymbols.map(_.map(_.id).toSet)
+      computeId = SymbolId.term(List("crossproducer"), List("LibJ"), "compute")
+    } yield expect(javaIds.contains(computeId)) and expect(bytecodeIds.contains(computeId))
   }
 }

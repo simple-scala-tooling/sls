@@ -259,11 +259,39 @@ private class JavaSymbolCollector(originFor: SourceUri => SymbolOrigin) extends 
     else Visibility.Public
   }
 
-  private def symbolId(sym: Symbol)(using Context): SymbolId = SymbolId(sym.fullName.toString)
+  private def symbolId(sym: Symbol)(using Context): SymbolId = {
+    val isType        = isTypeLike(sym)
+    val name          = stripDollar(sym.name.toString)
+    val (pkg, owners) = collectOwners(sym.owner)
+    SymbolId.fromJava(pkg, owners, name, isType)
+  }
+
+  private def isTypeLike(sym: Symbol)(using Context): Boolean =
+    if sym.is(Flags.Package) then true
+    else if sym.is(Flags.Module) then false
+    else sym.isType
+
+  private def collectOwners(start: Symbol)(using Context): (List[String], List[String]) = {
+    val ownersBuf  = mutable.ListBuffer.empty[String]
+    val packageBuf = mutable.ListBuffer.empty[String]
+    var cur        = start
+    while (cur.exists && !cur.isRoot && !cur.is(Flags.Package)) {
+      ownersBuf.prepend(stripDollar(cur.name.toString))
+      cur = cur.owner
+    }
+    while (cur.exists && !cur.isRoot && cur.is(Flags.Package)) {
+      packageBuf.prepend(stripDollar(cur.name.toString))
+      cur = cur.owner
+    }
+    (packageBuf.toList, ownersBuf.toList)
+  }
+
+  private def stripDollar(n: String): String =
+    if n.endsWith("$") then n.dropRight(1) else n
 
   private def ownerId(sym: Symbol)(using Context): Option[SymbolId] = {
     val o = sym.owner
-    if !o.exists || o.isRoot then None else Some(symbolId(o))
+    if !o.exists || o.isRoot || o.is(Flags.Package) then None else Some(symbolId(o))
   }
 
   private def sourceUri(sym: Symbol)(using Context): Option[SourceUri] = {

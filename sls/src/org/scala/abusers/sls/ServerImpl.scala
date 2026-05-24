@@ -9,7 +9,6 @@ import cats.syntax.all.*
 import fs2.io.file.Files
 import fs2.io.process.ProcessBuilder
 import fs2.text
-import index.value
 import io.scalaland.chimney.dsl._
 import io.scalaland.chimney.javacollections._
 import io.scalaland.chimney.Transformer
@@ -377,20 +376,13 @@ class ServerImpl(
         info      <- bspStateManager.get(uri)
         pc        <- pcProvider.get(info)
         defResult <- IO.interruptible(pc.definition(offsetParams))
-        pcSymbol   = defResult.symbol()
-        baseName   = index.semanticDbToFullName(pcSymbol)
-        candidates = index.symbolIdCandidates(baseName)
-        _    <- IO(logger.info(s"References: pcSymbol=$pcSymbol, candidates=${candidates.map(_.value)}"))
-        refs <- candidates.foldLeft(IO.pure(List.empty[index.SymbolReference])) { (acc, id) =>
-          acc.flatMap(prev =>
-            symbolIndex.getReferences(id).map { r =>
-              logger.info(s"References for ${id.value}: ${r.size} refs")
-              prev ++ r
-            }
-          )
-        }
-        _ <- symbolIndex.project.debugReferenceKeys.flatMap(keys =>
-          IO(logger.info(s"All reference keys in index (${keys.size}): ${keys.take(20).map(_.value)}"))
+        pcSymbol = defResult.symbol()
+        targetId = index.SymbolId.fromSemanticDb(pcSymbol)
+        _    <- IO(logger.info(s"References: pcSymbol=$pcSymbol, targetId=${targetId.render}"))
+        refs <- symbolIndex.getReferences(targetId)
+        _    <- IO(logger.info(s"References for ${targetId.render}: ${refs.size} refs"))
+        _    <- symbolIndex.project.debugReferenceKeys.flatMap(keys =>
+          IO(logger.info(s"All reference keys in index (${keys.size}): ${keys.take(20).map(_.render)}"))
         )
       } yield lsp.TextDocumentReferencesOpOutput(
         if refs.isEmpty then None
@@ -459,10 +451,10 @@ class ServerImpl(
 
   private def toDebugSymbol(s: index.IndexedSymbol): DebugSymbol =
     DebugSymbol(
-      id = s.id.value,
+      id = s.id.render,
       name = s.name,
       kind = s.kind.toString,
-      owner = s.owner.map(_.value),
+      owner = s.owner.map(_.render),
       origin = Some(s.origin match {
         case index.SymbolOrigin.ProjectTasty(bt, uri)      => s"project:$bt ($uri)"
         case index.SymbolOrigin.ProjectJavaSource(bt, uri) => s"project-java:$bt ($uri)"

@@ -18,7 +18,7 @@ object SymbolIndexSpec extends SimpleIOSuite {
       endCol: Int = 10,
   ): IndexedSymbol =
     IndexedSymbol(
-      id = SymbolId(s"pkg.$name"),
+      id = IndexTestFixtures.tid(s"pkg.$name"),
       name = name,
       kind = kind,
       visibility = Visibility.Public,
@@ -35,7 +35,7 @@ object SymbolIndexSpec extends SimpleIOSuite {
       kind: SymbolKind = SymbolKind.Class,
   ): IndexedSymbol =
     IndexedSymbol(
-      id = SymbolId(s"pkg.$name"),
+      id = IndexTestFixtures.tid(s"pkg.$name"),
       name = name,
       kind = kind,
       visibility = Visibility.Public,
@@ -63,14 +63,14 @@ object SymbolIndexSpec extends SimpleIOSuite {
   test("symbol in project only → found") {
     for {
       idx    <- mkIndex(projSyms = List(projSym("Foo")))
-      result <- idx.getSymbol(SymbolId("pkg.Foo"))
+      result <- idx.getSymbol(IndexTestFixtures.tid("pkg.Foo"))
     } yield expect(result.exists(_.name == "Foo"))
   }
 
   test("symbol in dependency only → found") {
     for {
       idx    <- mkIndex(depSyms = List(depSym("Bar")))
-      result <- idx.getSymbol(SymbolId("pkg.Bar"))
+      result <- idx.getSymbol(IndexTestFixtures.tid("pkg.Bar"))
     } yield expect(result.exists(_.name == "Bar"))
   }
 
@@ -79,7 +79,7 @@ object SymbolIndexSpec extends SimpleIOSuite {
     val dep  = depSym("Foo")
     for {
       idx    <- mkIndex(projSyms = List(proj), depSyms = List(dep))
-      result <- idx.getSymbol(SymbolId("pkg.Foo"))
+      result <- idx.getSymbol(IndexTestFixtures.tid("pkg.Foo"))
     } yield expect(result.exists(_.origin.isInstanceOf[SymbolOrigin.ProjectTasty]))
   }
 
@@ -101,31 +101,31 @@ object SymbolIndexSpec extends SimpleIOSuite {
   }
 
   test("getReferences returns only project references") {
-    val r = SymbolReference(SymbolId("pkg.Bar"), Location(fileA, 5, 0, 5, 10), ReferenceKind.Call)
+    val r = SymbolReference(IndexTestFixtures.tid("pkg.Bar"), Location(fileA, 5, 0, 5, 10), ReferenceKind.Call)
     for {
       idx    <- mkIndex(projRefs = List(r))
-      result <- idx.getReferences(SymbolId("pkg.Bar"))
+      result <- idx.getReferences(IndexTestFixtures.tid("pkg.Bar"))
     } yield expect(result.size == 1)
   }
 
   test("getSubtypes merges from both tiers") {
     val projParent = projSym("Parent")
-    val projChild  = projSym("ChildA", parents = List(SymbolId("pkg.Parent")))
-    val depChild   = depSym("ChildB", parents = List(SymbolId("pkg.Parent")))
+    val projChild  = projSym("ChildA", parents = List(IndexTestFixtures.tid("pkg.Parent")))
+    val depChild   = depSym("ChildB", parents = List(IndexTestFixtures.tid("pkg.Parent")))
     for {
       idx  <- mkIndex(projSyms = List(projParent, projChild), depSyms = List(depChild))
-      subs <- idx.getSubtypes(SymbolId("pkg.Parent"))
-    } yield expect(subs == Set(SymbolId("pkg.ChildA"), SymbolId("pkg.ChildB")))
+      subs <- idx.getSubtypes(IndexTestFixtures.tid("pkg.Parent"))
+    } yield expect(subs == Set(IndexTestFixtures.tid("pkg.ChildA"), IndexTestFixtures.tid("pkg.ChildB")))
   }
 
   test("getImplementations follows transitive subtype chain") {
     // Trait -> Abstract -> Concrete
     val traitSym    = projSym("MyTrait", kind = SymbolKind.Trait)
-    val abstractSym = projSym("Abstract", parents = List(SymbolId("pkg.MyTrait")), kind = SymbolKind.Trait)
-    val concrete    = projSym("Concrete", parents = List(SymbolId("pkg.Abstract")))
+    val abstractSym = projSym("Abstract", parents = List(IndexTestFixtures.tid("pkg.MyTrait")), kind = SymbolKind.Trait)
+    val concrete    = projSym("Concrete", parents = List(IndexTestFixtures.tid("pkg.Abstract")))
     for {
       idx   <- mkIndex(projSyms = List(traitSym, abstractSym, concrete))
-      impls <- idx.getImplementations(SymbolId("pkg.MyTrait"))
+      impls <- idx.getImplementations(IndexTestFixtures.tid("pkg.MyTrait"))
     } yield expect(impls.size == 1) and expect(impls.head.name == "Concrete")
   }
 
@@ -148,11 +148,11 @@ object SymbolIndexSpec extends SimpleIOSuite {
   }
 
   test("getSupertypes uses project-priority symbol") {
-    val proj = projSym("Child", parents = List(SymbolId("pkg.ProjParent")))
-    val dep  = depSym("Child", parents = List(SymbolId("pkg.DepParent")))
+    val proj = projSym("Child", parents = List(IndexTestFixtures.tid("pkg.ProjParent")))
+    val dep  = depSym("Child", parents = List(IndexTestFixtures.tid("pkg.DepParent")))
     for {
       idx    <- mkIndex(projSyms = List(proj), depSyms = List(dep))
-      supers <- idx.getSupertypes(SymbolId("pkg.Child"))
-    } yield expect(supers == List(SymbolId("pkg.ProjParent")))
+      supers <- idx.getSupertypes(IndexTestFixtures.tid("pkg.Child"))
+    } yield expect(supers == List(IndexTestFixtures.tid("pkg.ProjParent")))
   }
 }

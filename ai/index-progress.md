@@ -20,5 +20,11 @@
 
 - **3.3** IndexManager wired into server lifecycle (Smithy ops, initialized background indexing, didSave index update, stub handlers)
 
+## Architecture-improvements plan
+- **Phase 0** Test foundation — name-based → id-based assertions, orchestration tests, cross-producer fixture, round-trip determinism (PR #63)
+
+- **Phase 1** Canonical `SymbolId` — case-class with `pkg/owners/name/member`. Producers go through `fromTasty/fromJvm/fromSemanticDb/fromJava` factories; `Cls.foo` vs `Cls#foo` drift removed. `CrossProducerSpec` flipped from `ignore(...)` to green across all 6 cases (top-level class, companion object, overloaded method, inner class, Java class, Java overloaded method). `DepIndexCache.Version` bumped to 3.
+
 ## Next
+- **Phase 2** `SymbolIndexer` trait + strategy ADT — make `IndexManager.indexJarSafely` 5 lines of composition; land the deferred TASTy-crash → bytecode fallback test
 - **5.1–5.6** LSP feature handlers (references, workspace/symbol, rename, type hierarchy, didDeleteFiles)

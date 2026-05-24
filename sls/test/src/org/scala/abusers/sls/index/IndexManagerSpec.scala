@@ -43,7 +43,7 @@ object IndexManagerSpec extends SimpleIOSuite {
   test("onFilesDeleted removes symbols from project index") {
     val uri = SourceUri("file:///test/Foo.scala")
     val sym = IndexedSymbol(
-      id = SymbolId("test.Foo"),
+      id = IndexTestFixtures.tid("test.Foo"),
       name = "Foo",
       kind = SymbolKind.Class,
       visibility = Visibility.Public,
@@ -59,9 +59,9 @@ object IndexManagerSpec extends SimpleIOSuite {
       di <- DependencyIndex.empty
       mgr = IndexManager(pi, di, bytecodeIndexer)
       _      <- pi.updateFiles(Map(uri -> (List(sym), Nil)))
-      before <- pi.getSymbol(SymbolId("test.Foo"))
+      before <- pi.getSymbol(IndexTestFixtures.tid("test.Foo"))
       _      <- mgr.onFilesDeleted(Set(uri))
-      after  <- pi.getSymbol(SymbolId("test.Foo"))
+      after  <- pi.getSymbol(IndexTestFixtures.tid("test.Foo"))
     } yield expect(before.isDefined) and expect(after.isEmpty)
   }
 
@@ -104,7 +104,7 @@ object IndexManagerSpec extends SimpleIOSuite {
   test("searchSymbols with various query styles finds symbols") {
     val uri = SourceUri("file:///test/HashMap.scala")
     val sym = IndexedSymbol(
-      id = SymbolId("scala.collection.HashMap"),
+      id = IndexTestFixtures.tid("scala.collection.HashMap"),
       name = "HashMap",
       kind = SymbolKind.Class,
       visibility = Visibility.Public,
@@ -133,7 +133,7 @@ object IndexManagerSpec extends SimpleIOSuite {
   test("SymbolIndex.searchSymbols finds project and dependency symbols") {
     val uri     = SourceUri("file:///test/Foo.scala")
     val projSym = IndexedSymbol(
-      id = SymbolId("test.Foo"),
+      id = IndexTestFixtures.tid("test.Foo"),
       name = "Foo",
       kind = SymbolKind.Class,
       visibility = Visibility.Public,
@@ -165,7 +165,7 @@ object IndexManagerSpec extends SimpleIOSuite {
   test("CamelCase query 'IO' does not match camelCase 'indexOf'") {
     val uri = SourceUri("file:///test/Stuff.scala")
     val sym = IndexedSymbol(
-      id = SymbolId("test.indexOf"),
+      id = IndexTestFixtures.tid("test.indexOf"),
       name = "indexOf",
       kind = SymbolKind.Method,
       visibility = Visibility.Public,
@@ -188,7 +188,7 @@ object IndexManagerSpec extends SimpleIOSuite {
   test("mixed case 'iO' matches camelCase 'iOnly' via name prefix") {
     val uri = SourceUri("file:///test/Stuff.scala")
     val sym = IndexedSymbol(
-      id = SymbolId("test.iOnly"),
+      id = IndexTestFixtures.tid("test.iOnly"),
       name = "iOnly",
       kind = SymbolKind.Method,
       visibility = Visibility.Public,
@@ -211,7 +211,7 @@ object IndexManagerSpec extends SimpleIOSuite {
   test("lowercase query 'minutes' matches all-caps 'MINUTES'") {
     val uri = SourceUri("file:///test/Constants.scala")
     val sym = IndexedSymbol(
-      id = SymbolId("java.util.concurrent.TimeUnit.MINUTES"),
+      id = IndexTestFixtures.tid("java.util.concurrent.TimeUnit.MINUTES"),
       name = "MINUTES",
       kind = SymbolKind.Field,
       visibility = Visibility.Public,
@@ -235,7 +235,7 @@ object IndexManagerSpec extends SimpleIOSuite {
     val uri1 = SourceUri("file:///test/A.scala")
     val uri2 = SourceUri("file:///test/B.scala")
     val sym1 = IndexedSymbol(
-      id = SymbolId("test.A"),
+      id = IndexTestFixtures.tid("test.A"),
       name = "A",
       kind = SymbolKind.Class,
       visibility = Visibility.Public,
@@ -246,7 +246,7 @@ object IndexManagerSpec extends SimpleIOSuite {
       typeSignature = None,
     )
     val sym2 = IndexedSymbol(
-      id = SymbolId("test.B"),
+      id = IndexTestFixtures.tid("test.B"),
       name = "B",
       kind = SymbolKind.Class,
       visibility = Visibility.Public,
@@ -268,8 +268,8 @@ object IndexManagerSpec extends SimpleIOSuite {
         )
       )
       _ <- mgr.onFilesDeleted(Set(uri1, uri2))
-      a <- pi.getSymbol(SymbolId("test.A"))
-      b <- pi.getSymbol(SymbolId("test.B"))
+      a <- pi.getSymbol(IndexTestFixtures.tid("test.A"))
+      b <- pi.getSymbol(IndexTestFixtures.tid("test.B"))
     } yield expect(a.isEmpty) and expect(b.isEmpty)
   }
 
