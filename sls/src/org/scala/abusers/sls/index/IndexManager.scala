@@ -210,9 +210,8 @@ case class IndexManager(
     * yields the bytecode skeleton).
     */
   private def runStrategy(jarPath: AbsolutePath, strategy: IndexStrategy): IO[List[IndexedSymbol]] = {
-    val jar                                  = jarPath.toNioPath.toString
-    val bytecode                             = SymbolIndexer.bytecode(bytecodeIndexer)
-    def fallback: IO[List[IndexedSymbol]]    = bytecode.indexJar(jarPath, Nil)
+    val jar                               = jarPath.toNioPath.toString
+    def fallback: IO[List[IndexedSymbol]] = bytecodeIndexer.indexJar(jarPath)
     strategy match {
       case IndexStrategy.Tasty(cp)                  =>
         SymbolIndexer.tasty("dependency").indexJar(jarPath, cp).handleErrorWith { e =>

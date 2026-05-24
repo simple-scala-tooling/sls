@@ -5,14 +5,15 @@ import org.scala.abusers.sls.AbsolutePath
 
 /** Producer-agnostic view of a JAR-indexer: hand it a JAR and a classpath, get back a flat list of [[IndexedSymbol]]s.
   *
-  * Three things bound here are *not* shared by the underlying producers:
+  * Two things bound here are *not* shared by the underlying producers:
   *   - [[TastyIndexer]] returns `Map[SourceUri, (symbols, references)]`; references are dropped at this layer because
   *     dependency JARs are not navigated by reference today.
-  *   - [[BytecodeIndexer]] does not consult a classpath (ASM only reads class bytes), so `classpath` is ignored by its
-  *     adapter.
   *   - [[JavaIndexer]] needs the *origin* JAR path baked in at construction (it tags emitted symbols with
   *     `SymbolOrigin.DependencySource(<origin>)`), and `indexJar` is called with the *sources* JAR — distinct from the
   *     binary JAR. The factory `javaSource(originJarPath)` captures the origin.
+  *
+  * [[BytecodeIndexer]] is not wrapped — its API is already a flat `IO[List[IndexedSymbol]]` and it doesn't consult a
+  * classpath, so `IndexManager` uses it directly as the terminal fallback.
   */
 trait SymbolIndexer {
   def indexJar(jar: AbsolutePath, classpath: List[AbsolutePath]): IO[List[IndexedSymbol]]
@@ -25,12 +26,6 @@ object SymbolIndexer {
     private val underlying = TastyIndexer(buildTarget)
     def indexJar(jar: AbsolutePath, classpath: List[AbsolutePath]): IO[List[IndexedSymbol]] =
       underlying.indexJar(jar, classpath).map(_.values.flatMap(_._1).toList)
-  }
-
-  /** ASM bytecode scan over `.class` entries. `classpath` is ignored. */
-  def bytecode(impl: BytecodeIndexer): SymbolIndexer = new SymbolIndexer {
-    def indexJar(jar: AbsolutePath, classpath: List[AbsolutePath]): IO[List[IndexedSymbol]] =
-      impl.indexJar(jar)
   }
 
   /** dotc Java frontend over `.java` entries in the *sources* JAR. `originJarPath` is the binary jar whose symbols we
