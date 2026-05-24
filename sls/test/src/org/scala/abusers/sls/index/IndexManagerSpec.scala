@@ -285,4 +285,21 @@ object IndexManagerSpec extends SimpleIOSuite {
     } yield expect(found.exists(_.origin.isInstanceOf[SymbolOrigin.DependencyClassfile]))
   }
 
+  test("corrupted .tasty entry crashes TastyIndexer — bytecode fallback publishes .class symbols") {
+    // Phase 2 deferred test: a JAR carrying both a garbage `.tasty` entry and a real `.class` entry.
+    // chooseStrategy sees the `.tasty` and picks IndexStrategy.Tasty; the TASTy inspector fails to
+    // parse the magic header, runStrategy's handleErrorWith fires, and the bytecode terminal
+    // fallback indexes the `.class` entry.
+    val garbageTasty = ("com/example/Broken.tasty", "not valid TASTy bytes".getBytes("UTF-8"))
+    val realClass    = javaClass("com/example/Survivor")
+    for {
+      jar <- createJar(List(garbageTasty, realClass))
+      pi  <- ProjectIndex.empty
+      di  <- DependencyIndex.empty
+      mgr = IndexManager(pi, di, bytecodeIndexer)
+      _     <- mgr.indexJarSafely(jar, Nil)
+      found <- di.getSymbolsByName("Survivor")
+    } yield expect(found.exists(_.origin.isInstanceOf[SymbolOrigin.DependencyClassfile]))
+  }
+
 }

@@ -175,76 +175,77 @@ case class IndexManager(
   }
 
   private[index] def indexJarSafely(jarPath: AbsolutePath, classpath: List[AbsolutePath]): IO[Unit] = {
-    val jar                        = jarPath.toNioPath.toString
-    def indexViaBytecode: IO[Unit] =
-      bytecodeIndexer.indexJar(jarPath).flatMap(dependencyIndex.addJar(jar, _))
+    val jar = jarPath.toNioPath.toString
+    chooseStrategy(jarPath, classpath)
+      .flatMap(runStrategy(jarPath, _))
+      .flatMap(syms => if syms.nonEmpty then dependencyIndex.addJar(jar, syms) else IO.unit)
+      .handleError(e => logger.error(s"Failed to index JAR $jar", e))
+  }
 
-    def runIndexer(sourcesJar: AbsolutePath, cp: List[AbsolutePath]): IO[List[IndexedSymbol]] =
-      JavaIndexer
-        .forDependency(jar)
-        .indexJarEntries(sourcesJar, cp)
-        .map(_.values.flatMap(_._1).toList)
-
-    def publish(symbols: List[IndexedSymbol]): IO[Boolean] =
-      if symbols.isEmpty then IO.pure(false)
-      else dependencyIndex.addJar(jar, symbols).as(true)
-
-    def runJavaIndex(sourcesJar: AbsolutePath, cp: List[AbsolutePath]): IO[Boolean] =
-      depIndexCache.hashJar(sourcesJar.toNioPath).flatMap { sha =>
-        depIndexCache.lookup(sha).flatMap {
-          case Some(cached) =>
-            logger.info(s"Dep index cache hit for $jar (sha=$sha, ${cached.size} symbols)")
-            publish(cached)
-          case None =>
-            runIndexer(sourcesJar, cp)
-              .flatTap(depIndexCache.store(sha, _))
-              .flatMap(publish)
+  /** Inspect the JAR's contents and (best-effort) resolve its Maven coords to decide how it should be indexed. The
+    * decision is "physical": [[IndexStrategy.Tasty]] only when `.tasty` entries are present; [[IndexStrategy.JavaSource]]
+    * only when a published `-sources` companion exists; otherwise [[IndexStrategy.Bytecode]] (terminal).
+    *
+    * For the TASTy branch the classpath is the one we'll type-check the jar's TASTy against — coursier resolves the
+    * jar's POM to reconstruct the original compile-time view (build tools resolve version conflicts to the newest
+    * version, so the project CP and the jar's own CP usually differ; reading TASTy with the wrong CP silently
+    * mis-resolves overloads / inherited members / implicits). Falls back to the project CP when there are no Maven
+    * coords (e.g. Mill-internal jars).
+    */
+  private def chooseStrategy(jarPath: AbsolutePath, projectCp: List[AbsolutePath]): IO[IndexStrategy] =
+    jarContainsTasty(jarPath).flatMap {
+      case true  =>
+        resolveHermeticDep(jarPath, withSources = false)
+          .map(_.map(_.classpath).getOrElse(projectCp))
+          .map(IndexStrategy.Tasty.apply)
+      case false =>
+        resolveHermeticDep(jarPath, withSources = true).map {
+          case Some(HermeticResolution(cp, Some(sourcesJar))) => IndexStrategy.JavaSource(sourcesJar, cp)
+          case _                                              => IndexStrategy.Bytecode
         }
-      }
+    }
 
-    def indexViaJavaSources: IO[Boolean] =
-      resolveHermeticDep(jarPath, withSources = true).flatMap {
-        case Some(HermeticResolution(cp, Some(sourcesJar))) => runJavaIndex(sourcesJar, cp)
-        case _                                              => IO.pure(false)
-      }
+  /** Execute a chosen strategy with the bytecode terminal fallback wired in: TASTy falls back on inspector crash;
+    * JavaSource falls back on either error or zero-symbol result (so a sources jar that contains only resources still
+    * yields the bytecode skeleton).
+    */
+  private def runStrategy(jarPath: AbsolutePath, strategy: IndexStrategy): IO[List[IndexedSymbol]] = {
+    val jar                                  = jarPath.toNioPath.toString
+    val bytecode                             = SymbolIndexer.bytecode(bytecodeIndexer)
+    def fallback: IO[List[IndexedSymbol]]    = bytecode.indexJar(jarPath, Nil)
+    strategy match {
+      case IndexStrategy.Tasty(cp)                  =>
+        SymbolIndexer.tasty("dependency").indexJar(jarPath, cp).handleErrorWith { e =>
+          IO(logger.warn(s"TASTy indexing failed for $jar, falling back to bytecode: ${e.getMessage}")) *> fallback
+        }
+      case IndexStrategy.JavaSource(sourcesJar, cp) =>
+        cachedJavaSource(jarPath, sourcesJar, cp)
+          .handleErrorWith { e =>
+            IO(logger.error(s"Java source indexing failed for $jar, falling back to bytecode", e)).as(Nil)
+          }
+          .flatMap(syms => if syms.nonEmpty then IO.pure(syms) else fallback)
+      case IndexStrategy.Bytecode                   => fallback
+    }
+  }
 
-    (for {
-      hasTasty <- jarContainsTasty(jarPath)
-      _        <-
-        if hasTasty then {
-          val indexer = TastyIndexer("dependency")
-          // Type-check the jar's TASTy against the classpath it was *pickled against*, not the
-          // project's runtime classpath. They are usually different: build tools resolve version
-          // conflicts to the newest version, so the project pulls (say) lib Y 1.1 while jar X's
-          // TASTy was pickled against Y 1.0. Reading X's TASTy with Y 1.1 on the classpath doesn't
-          // crash (1.1 is a superset), but overload resolution / inherited-member iteration /
-          // implicit search all happen at TASTy-read time against the 1.1 view — so the indexed
-          // references silently drift to symbols X's author never intended. Coursier resolves the
-          // jar's POM to reconstruct the original compile-time view. Falls back to the project
-          // classpath when the jar has no Maven coords (e.g. Mill-internal jars).
-          resolveHermeticDep(jarPath, withSources = false)
-            .map(_.map(_.classpath).getOrElse(classpath))
-            .flatMap { cp =>
-              indexer.indexJar(jarPath, cp).flatMap { results =>
-                val symbols = results.values.flatMap(_._1).toList
-                dependencyIndex.addJar(jar, symbols)
-              }
-            }
-            .handleErrorWith { e =>
-              logger.warn(s"TASTy indexing failed for $jar, falling back to bytecode: ${e.getMessage}")
-              indexViaBytecode
-            }
-        } else
-          indexViaJavaSources
-            .handleErrorWith { e =>
-              logger.error(s"Java source indexing failed for $jar, falling back to bytecode", e)
-              IO.pure(false)
-            }
-            .flatMap { indexed =>
-              if indexed then IO.unit
-              else indexViaBytecode
-            }
-    } yield ()).handleError(e => logger.error(s"Failed to index JAR $jar", e))
+  /** Java-source indexing through the sources-jar SHA cache. Hits return the cached symbols verbatim; misses run the
+    * indexer and store the result (even when empty — see [[runStrategy]] for how empty results trigger the bytecode
+    * fallback).
+    */
+  private def cachedJavaSource(
+      jarPath: AbsolutePath,
+      sourcesJar: AbsolutePath,
+      cp: List[AbsolutePath],
+  ): IO[List[IndexedSymbol]] = {
+    val jar = jarPath.toNioPath.toString
+    depIndexCache.hashJar(sourcesJar.toNioPath).flatMap { sha =>
+      depIndexCache.lookup(sha).flatMap {
+        case Some(cached) =>
+          IO(logger.info(s"Dep index cache hit for $jar (sha=$sha, ${cached.size} symbols)")).as(cached)
+        case None         =>
+          SymbolIndexer.javaSource(jar).indexJar(sourcesJar, cp).flatTap(depIndexCache.store(sha, _))
+      }
+    }
   }
 
   /** Resolve the jar's own transitive Maven dependencies via coursier. Returns `Some(_)` only when the jar carries
