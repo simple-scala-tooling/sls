@@ -76,7 +76,7 @@ class DepIndexCache(root: Path) {
 object DepIndexCache {
 
   /** Bump on any breaking change to the cached IndexedSymbol JSON shape or to the indexer's extraction logic. */
-  val Version: Int = 2
+  val Version: Int = 3
 
   def default: DepIndexCache =
     new DepIndexCache(XdgCacheDir.cacheHome.resolve("sls/dep-index"))

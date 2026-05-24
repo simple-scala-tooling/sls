@@ -149,7 +149,7 @@ object BytecodeIndexerSpec extends SimpleIOSuite {
       jar  <- createJar(List(outer, inner))
       syms <- indexer.indexJar(jar)
       innerSym = syms.find(_.name == "Inner")
-    } yield expect(innerSym.exists(_.owner.contains(SymbolId("com.example.Outer"))))
+    } yield expect(innerSym.exists(_.owner.contains(IndexTestFixtures.tid("com.example.Outer"))))
   }
 
   test("parent classes extracted") {
@@ -159,10 +159,10 @@ object BytecodeIndexerSpec extends SimpleIOSuite {
     for {
       jar  <- createJar(List(base, child))
       syms <- indexer.indexJar(jar)
-      childSym = syms.find(_.id == SymbolId("com.example.Child"))
+      childSym = syms.find(_.id == IndexTestFixtures.tid("com.example.Child"))
       parents  = childSym.toList.flatMap(_.parents)
-    } yield expect(parents.contains(SymbolId("com.example.Base"))) and
-      expect(parents.contains(SymbolId("java.io.Serializable")))
+    } yield expect(parents.contains(IndexTestFixtures.tid("com.example.Base"))) and
+      expect(parents.contains(IndexTestFixtures.tid("java.io.Serializable")))
   }
 
   test("all symbols have location = None and DependencyClassfile origin") {

@@ -39,7 +39,7 @@ object JavaIndexerSpec extends SimpleIOSuite {
     for {
       syms <- allSymbols
       areaOnSquare = syms.find(s =>
-        s.name == "area" && s.kind == SymbolKind.Method && s.owner.exists(_ == SymbolId("fixture.Square"))
+        s.name == "area" && s.kind == SymbolKind.Method && s.owner.exists(_ == IndexTestFixtures.tid("fixture.Square"))
       )
     } yield expect(areaOnSquare.isDefined)
   }
@@ -59,17 +59,17 @@ object JavaIndexerSpec extends SimpleIOSuite {
     for {
       syms <- allSymbols
       ctors = syms.filter(_.kind == SymbolKind.Constructor)
-    } yield expect(ctors.exists(_.owner.exists(_.value.contains("Square"))))
+    } yield expect(ctors.exists(_.owner.exists(_.render.contains("Square"))))
   }
 
   test("implements relationship produces parent + Extends reference") {
     for {
       syms <- allSymbols
       refs <- allRefs
-      square      = syms.find(_.id == SymbolId("fixture.Square"))
+      square      = syms.find(_.id == IndexTestFixtures.tid("fixture.Square"))
       extendsRefs = refs.filter(_.referenceKind == ReferenceKind.Extends)
-    } yield expect(square.exists(_.parents.contains(SymbolId("fixture.Shapes")))) and
-      expect(extendsRefs.exists(_.symbol == SymbolId("fixture.Shapes")))
+    } yield expect(square.exists(_.parents.contains(IndexTestFixtures.tid("fixture.Shapes")))) and
+      expect(extendsRefs.exists(_.symbol == IndexTestFixtures.tid("fixture.Shapes")))
   }
 
   test("origin is ProjectJavaSource") {
@@ -127,12 +127,12 @@ object JavaIndexerSpec extends SimpleIOSuite {
       serial   <- indexer.indexJarEntries(zip, Nil, parallelism = 1)
       parallel <- indexer.indexJarEntries(zip, Nil, parallelism = 4)
     } yield {
-      val serialSyms   = serial.values.flatMap(_._1).map(_.id.value).toSet
-      val parallelSyms = parallel.values.flatMap(_._1).map(_.id.value).toSet
+      val serialSyms   = serial.values.flatMap(_._1).map(_.id).toSet
+      val parallelSyms = parallel.values.flatMap(_._1).map(_.id).toSet
       expect(serialSyms == parallelSyms) and
-        expect(parallelSyms.contains("com.a.Alpha")) and
-        expect(parallelSyms.contains("com.a.Beta")) and
-        expect(parallelSyms.contains("com.b.Gamma"))
+        expect(parallelSyms.contains(IndexTestFixtures.tid("com.a.Alpha"))) and
+        expect(parallelSyms.contains(IndexTestFixtures.tid("com.a.Beta"))) and
+        expect(parallelSyms.contains(IndexTestFixtures.tid("com.b.Gamma")))
     }
   }
 
@@ -166,8 +166,8 @@ object JavaIndexerSpec extends SimpleIOSuite {
     }.flatMap { zip =>
       JavaIndexer.forDependency(zip.toNioPath.toString).indexJarEntries(zip, Nil).map { results =>
         val syms = results.values.flatMap(_._1).toList
-        expect(syms.exists(_.id.value == "java.lang.FakeClass")) and
-          expect(!syms.exists(_.id.value.contains("module-info")))
+        expect(syms.exists(_.id == IndexTestFixtures.tid("java.lang.FakeClass"))) and
+          expect(!syms.exists(_.id.render.contains("module-info")))
       }
     }
   }

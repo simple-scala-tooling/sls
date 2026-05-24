@@ -15,7 +15,7 @@ object DependencyIndexSpec extends SimpleIOSuite {
       location: Option[Location] = None,
   ): IndexedSymbol =
     IndexedSymbol(
-      id = SymbolId(s"pkg.$name"),
+      id = IndexTestFixtures.tid(s"pkg.$name"),
       name = name,
       kind = SymbolKind.Class,
       visibility = Visibility.Public,
@@ -30,7 +30,7 @@ object DependencyIndexSpec extends SimpleIOSuite {
     for {
       idx    <- DependencyIndex.empty
       _      <- idx.addJar(jarA, List(sym("Foo", jarA)))
-      result <- idx.getSymbol(SymbolId("pkg.Foo"))
+      result <- idx.getSymbol(IndexTestFixtures.tid("pkg.Foo"))
     } yield expect(result.exists(_.name == "Foo"))
   }
 
@@ -73,43 +73,43 @@ object DependencyIndexSpec extends SimpleIOSuite {
     for {
       idx    <- DependencyIndex.empty
       _      <- idx.addJar(jarA, List(sym("Foo", jarA)))
-      before <- idx.getSymbol(SymbolId("pkg.Foo"))
+      before <- idx.getSymbol(IndexTestFixtures.tid("pkg.Foo"))
       loc = Location(SourceUri("file:///src/Foo.scala"), 10, 0, 10, 20)
-      _     <- idx.updateLocations(Map(SymbolId("pkg.Foo") -> loc))
-      after <- idx.getSymbol(SymbolId("pkg.Foo"))
+      _     <- idx.updateLocations(Map(IndexTestFixtures.tid("pkg.Foo") -> loc))
+      after <- idx.getSymbol(IndexTestFixtures.tid("pkg.Foo"))
     } yield expect(before.flatMap(_.location).isEmpty) and
       expect(after.flatMap(_.location).contains(loc))
   }
 
   test("getSubtypes works across JARs") {
     val parent = sym("Parent", jarA)
-    val childA = sym("ChildA", jarA, parents = List(SymbolId("pkg.Parent")))
-    val childB = sym("ChildB", jarB, parents = List(SymbolId("pkg.Parent")))
+    val childA = sym("ChildA", jarA, parents = List(IndexTestFixtures.tid("pkg.Parent")))
+    val childB = sym("ChildB", jarB, parents = List(IndexTestFixtures.tid("pkg.Parent")))
     for {
       idx  <- DependencyIndex.empty
       _    <- idx.addJar(jarA, List(parent, childA))
       _    <- idx.addJar(jarB, List(childB))
-      subs <- idx.getSubtypes(SymbolId("pkg.Parent"))
-    } yield expect(subs == Set(SymbolId("pkg.ChildA"), SymbolId("pkg.ChildB")))
+      subs <- idx.getSubtypes(IndexTestFixtures.tid("pkg.Parent"))
+    } yield expect(subs == Set(IndexTestFixtures.tid("pkg.ChildA"), IndexTestFixtures.tid("pkg.ChildB")))
   }
 
   test("getSupertypes returns parents") {
-    val child = sym("Child", jarA, parents = List(SymbolId("pkg.Parent")))
+    val child = sym("Child", jarA, parents = List(IndexTestFixtures.tid("pkg.Parent")))
     for {
       idx     <- DependencyIndex.empty
       _       <- idx.addJar(jarA, List(child))
-      parents <- idx.getSupertypes(SymbolId("pkg.Child"))
-    } yield expect(parents == List(SymbolId("pkg.Parent")))
+      parents <- idx.getSupertypes(IndexTestFixtures.tid("pkg.Child"))
+    } yield expect(parents == List(IndexTestFixtures.tid("pkg.Parent")))
   }
 
   test("empty index returns empty for all queries") {
     for {
       idx    <- DependencyIndex.empty
-      sym    <- idx.getSymbol(SymbolId("x"))
+      sym    <- idx.getSymbol(IndexTestFixtures.tid("x"))
       byName <- idx.getSymbolsByName("x")
       search <- idx.searchSymbols("x")
-      subs   <- idx.getSubtypes(SymbolId("x"))
-      supers <- idx.getSupertypes(SymbolId("x"))
+      subs   <- idx.getSubtypes(IndexTestFixtures.tid("x"))
+      supers <- idx.getSupertypes(IndexTestFixtures.tid("x"))
       bloom  <- idx.jarMightContain("any.jar", "x")
     } yield expect(sym.isEmpty) and expect(byName.isEmpty) and expect(search.isEmpty) and
       expect(subs.isEmpty) and expect(supers.isEmpty) and expect(!bloom)

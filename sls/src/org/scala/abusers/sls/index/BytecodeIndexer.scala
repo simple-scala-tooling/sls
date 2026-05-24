@@ -55,8 +55,11 @@ class BytecodeIndexer {
 private class IndexClassVisitor(origin: SymbolOrigin) extends ClassVisitor(Opcodes.ASM9) {
   val symbols: ListBuffer[IndexedSymbol] = ListBuffer.empty
 
-  private var className: String       = ""
-  private var classSymbolId: SymbolId = SymbolId("")
+  /** JVM internal name (e.g. `crossproducer/Lib$Inner` or `crossproducer/Lib$`). Passed through `SymbolId.fromJvm` to
+    * produce canonical ids; kept verbatim so methods/fields can be built off the same internal name.
+    */
+  private var internalName: String    = ""
+  private var classSymbolId: SymbolId = SymbolId.tpe(Nil, Nil, "")
   override def visit(
       version: Int,
       access: Int,
@@ -65,26 +68,25 @@ private class IndexClassVisitor(origin: SymbolOrigin) extends ClassVisitor(Opcod
       superName: String,
       interfaces: Array[String],
   ): Unit = {
-    className = jvmToFqn(name)
-    classSymbolId = SymbolId(className)
+    internalName = name
+    classSymbolId = SymbolId.fromJvm(name, memberName = None)
 
     if (shouldSkipClass(name, access)) return
 
-    val kind       = classKind(name, access)
-    val vis        = accessToVisibility(access)
-    val parents    = buildParents(superName, interfaces)
-    val simpleName = className.split("[.$]").filter(_.nonEmpty).last
+    val kind    = classKind(name, access)
+    val vis     = accessToVisibility(access)
+    val parents = buildParents(superName, interfaces)
 
     symbols += IndexedSymbol(
       id = classSymbolId,
-      name = simpleName,
+      name = classSymbolId.name,
       kind = kind,
       visibility = vis,
-      owner = ownerFromFqn(className),
+      owner = ownerFromInternalName(name),
       location = None,
       origin = origin,
       parents = parents,
-      typeSignature = Some(className),
+      typeSignature = Some(classSymbolId.render),
     )
   }
 
@@ -99,7 +101,7 @@ private class IndexClassVisitor(origin: SymbolOrigin) extends ClassVisitor(Opcod
 
     val kind     = if (name == "<init>") SymbolKind.Constructor else SymbolKind.Method
     val vis      = accessToVisibility(access)
-    val methodId = SymbolId(s"$className#$name")
+    val methodId = SymbolId.fromJvm(internalName, memberName = Some(name))
     val sig      = Option(signature).getOrElse(descriptor)
 
     symbols += IndexedSymbol(
@@ -130,7 +132,7 @@ private class IndexClassVisitor(origin: SymbolOrigin) extends ClassVisitor(Opcod
       if ((access & Opcodes.ACC_ENUM) != 0) SymbolKind.EnumCase
       else if ((access & Opcodes.ACC_FINAL) != 0) SymbolKind.Val
       else SymbolKind.Var
-    val fieldId = SymbolId(s"$className#$name")
+    val fieldId = SymbolId.fromJvm(internalName, memberName = Some(name))
     val sig     = Option(signature).getOrElse(descriptor)
 
     symbols += IndexedSymbol(
@@ -181,24 +183,30 @@ private class IndexClassVisitor(origin: SymbolOrigin) extends ClassVisitor(Opcod
   private def isBridge(access: Int): Boolean =
     (access & Opcodes.ACC_BRIDGE) != 0
 
-  private def jvmToFqn(internalName: String): String =
-    internalName.replace('/', '.')
-
   private def buildParents(superName: String, interfaces: Array[String]): List[SymbolId] = {
     val parents = ListBuffer.empty[SymbolId]
     if (superName != null && superName != "java/lang/Object")
-      parents += SymbolId(jvmToFqn(superName))
+      parents += SymbolId.fromJvm(superName, memberName = None)
     if (interfaces != null)
-      interfaces.foreach(i => parents += SymbolId(jvmToFqn(i)))
+      interfaces.foreach(i => parents += SymbolId.fromJvm(i, memberName = None))
     parents.toList
   }
 
-  private def ownerFromFqn(fqn: String): Option[SymbolId] = {
-    val lastDollar = fqn.lastIndexOf('$')
-    val lastDot    = fqn.lastIndexOf('.')
-    val sep        = math.max(lastDollar, lastDot)
-    if (sep > 0) Some(SymbolId(fqn.substring(0, sep)))
-    else None
+  /** Owner of a class is its lexically-enclosing class for inner classes, otherwise None. We deliberately do *not*
+    * encode the package as the owner — packages are not types in our canonical model.
+    */
+  private def ownerFromInternalName(name: String): Option[SymbolId] = {
+    val lastSlash = name.lastIndexOf('/')
+    // Trailing `$` on a class name means the module class itself; strip it before looking for an outer.
+    val core      = if (name.endsWith("$")) name.dropRight(1) else name
+    val classPart =
+      if (lastSlash >= 0) core.substring(lastSlash + 1) else core
+    val lastDollar = classPart.lastIndexOf('$')
+    if (lastDollar > 0) {
+      val pkgPart   = if (lastSlash >= 0) name.substring(0, lastSlash + 1) else ""
+      val ownerName = pkgPart + classPart.substring(0, lastDollar)
+      Some(SymbolId.fromJvm(ownerName, memberName = None))
+    } else None
   }
 }
 

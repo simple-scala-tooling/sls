@@ -11,7 +11,7 @@ object ProjectIndexSpec extends SimpleIOSuite {
 
   private def sym(name: String, file: SourceUri, parents: List[SymbolId] = Nil): IndexedSymbol =
     IndexedSymbol(
-      id = SymbolId(s"pkg.$name"),
+      id = IndexTestFixtures.tid(s"pkg.$name"),
       name = name,
       kind = SymbolKind.Class,
       visibility = Visibility.Public,
@@ -24,7 +24,7 @@ object ProjectIndexSpec extends SimpleIOSuite {
 
   private def ref(symbolName: String, file: SourceUri): SymbolReference =
     SymbolReference(
-      symbol = SymbolId(s"pkg.$symbolName"),
+      symbol = IndexTestFixtures.tid(s"pkg.$symbolName"),
       location = Location(file, 5, 0, 5, 10),
       referenceKind = ReferenceKind.Call,
     )
@@ -33,7 +33,7 @@ object ProjectIndexSpec extends SimpleIOSuite {
     for {
       idx    <- ProjectIndex.empty
       _      <- idx.updateFiles(Map(fileA -> (List(sym("Foo", fileA)), Nil)))
-      result <- idx.getSymbol(SymbolId("pkg.Foo"))
+      result <- idx.getSymbol(IndexTestFixtures.tid("pkg.Foo"))
     } yield expect(result.exists(_.name == "Foo"))
   }
 
@@ -63,8 +63,8 @@ object ProjectIndexSpec extends SimpleIOSuite {
         )
       )
       _   <- idx.removeFiles(Set(fileA))
-      foo <- idx.getSymbol(SymbolId("pkg.Foo"))
-      bar <- idx.getSymbol(SymbolId("pkg.Bar"))
+      foo <- idx.getSymbol(IndexTestFixtures.tid("pkg.Foo"))
+      bar <- idx.getSymbol(IndexTestFixtures.tid("pkg.Bar"))
     } yield expect(foo.isEmpty) and expect(bar.isDefined)
   }
 
@@ -73,8 +73,8 @@ object ProjectIndexSpec extends SimpleIOSuite {
       idx <- ProjectIndex.empty
       _   <- idx.updateFiles(Map(fileA -> (List(sym("Foo", fileA)), Nil)))
       _   <- idx.updateFiles(Map(fileA -> (List(sym("Baz", fileA)), Nil)))
-      foo <- idx.getSymbol(SymbolId("pkg.Foo"))
-      baz <- idx.getSymbol(SymbolId("pkg.Baz"))
+      foo <- idx.getSymbol(IndexTestFixtures.tid("pkg.Foo"))
+      baz <- idx.getSymbol(IndexTestFixtures.tid("pkg.Baz"))
     } yield expect(foo.isEmpty) and expect(baz.isDefined)
   }
 
@@ -103,55 +103,55 @@ object ProjectIndexSpec extends SimpleIOSuite {
           fileB -> (Nil, List(ref("Bar", fileB))),
         )
       )
-      result <- idx.getReferences(SymbolId("pkg.Bar"))
+      result <- idx.getReferences(IndexTestFixtures.tid("pkg.Bar"))
     } yield expect(result.size == 2)
   }
 
   test("getReferences returns every inserted ref, with no loss or duplication") {
-    val r1 = SymbolReference(SymbolId("pkg.T"), Location(fileA, 1, 0, 1, 5), ReferenceKind.Call)
-    val r2 = SymbolReference(SymbolId("pkg.T"), Location(fileA, 2, 0, 2, 5), ReferenceKind.Call)
-    val r3 = SymbolReference(SymbolId("pkg.T"), Location(fileA, 3, 0, 3, 5), ReferenceKind.Call)
+    val r1 = SymbolReference(IndexTestFixtures.tid("pkg.T"), Location(fileA, 1, 0, 1, 5), ReferenceKind.Call)
+    val r2 = SymbolReference(IndexTestFixtures.tid("pkg.T"), Location(fileA, 2, 0, 2, 5), ReferenceKind.Call)
+    val r3 = SymbolReference(IndexTestFixtures.tid("pkg.T"), Location(fileA, 3, 0, 3, 5), ReferenceKind.Call)
     for {
       idx  <- ProjectIndex.empty
       _    <- idx.updateFiles(Map(fileA -> (Nil, List(r1, r2, r3))))
-      refs <- idx.getReferences(SymbolId("pkg.T"))
+      refs <- idx.getReferences(IndexTestFixtures.tid("pkg.T"))
     } yield expect(refs.size == 3) and expect(refs.toSet == Set(r1, r2, r3))
   }
 
   test("updateFiles replaces — not appends — refs for the same URI") {
     // A second updateFiles for the same URI must remove old refs before inserting new.
     // Without removal, repeated compile events accumulate stale references.
-    val old = SymbolReference(SymbolId("pkg.T"), Location(fileA, 1, 0, 1, 5), ReferenceKind.Call)
-    val neu = SymbolReference(SymbolId("pkg.T"), Location(fileA, 9, 0, 9, 5), ReferenceKind.Call)
+    val old = SymbolReference(IndexTestFixtures.tid("pkg.T"), Location(fileA, 1, 0, 1, 5), ReferenceKind.Call)
+    val neu = SymbolReference(IndexTestFixtures.tid("pkg.T"), Location(fileA, 9, 0, 9, 5), ReferenceKind.Call)
     for {
       idx  <- ProjectIndex.empty
       _    <- idx.updateFiles(Map(fileA -> (Nil, List(old))))
       _    <- idx.updateFiles(Map(fileA -> (Nil, List(neu))))
-      refs <- idx.getReferences(SymbolId("pkg.T"))
+      refs <- idx.getReferences(IndexTestFixtures.tid("pkg.T"))
     } yield expect(refs.size == 1) and expect(refs.head.location.startLine == 9)
   }
 
   test("getSubtypes correct after insertion and clean after removal") {
     val parent = sym("Parent", fileA)
-    val child  = sym("Child", fileA, parents = List(SymbolId("pkg.Parent")))
+    val child  = sym("Child", fileA, parents = List(IndexTestFixtures.tid("pkg.Parent")))
     for {
       idx       <- ProjectIndex.empty
       _         <- idx.updateFiles(Map(fileA -> (List(parent, child), Nil)))
-      subs      <- idx.getSubtypes(SymbolId("pkg.Parent"))
+      subs      <- idx.getSubtypes(IndexTestFixtures.tid("pkg.Parent"))
       _         <- idx.removeFiles(Set(fileA))
-      subsAfter <- idx.getSubtypes(SymbolId("pkg.Parent"))
-    } yield expect(subs == Set(SymbolId("pkg.Child"))) and expect(subsAfter.isEmpty)
+      subsAfter <- idx.getSubtypes(IndexTestFixtures.tid("pkg.Parent"))
+    } yield expect(subs == Set(IndexTestFixtures.tid("pkg.Child"))) and expect(subsAfter.isEmpty)
   }
 
   test("empty index returns empty for all queries") {
     for {
       idx    <- ProjectIndex.empty
-      sym    <- idx.getSymbol(SymbolId("x"))
+      sym    <- idx.getSymbol(IndexTestFixtures.tid("x"))
       byName <- idx.getSymbolsByName("x")
       search <- idx.searchSymbols("x")
       inFile <- idx.getSymbolsInFile(fileA)
-      refs   <- idx.getReferences(SymbolId("x"))
-      subs   <- idx.getSubtypes(SymbolId("x"))
+      refs   <- idx.getReferences(IndexTestFixtures.tid("x"))
+      subs   <- idx.getSubtypes(IndexTestFixtures.tid("x"))
     } yield expect(sym.isEmpty) and expect(byName.isEmpty) and expect(search.isEmpty) and
       expect(inFile.isEmpty) and expect(refs.isEmpty) and expect(subs.isEmpty)
   }

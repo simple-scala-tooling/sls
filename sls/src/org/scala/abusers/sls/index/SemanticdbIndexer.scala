@@ -26,7 +26,7 @@ object SemanticdbIndexer {
           endLine = r.endLine,
           endCol = r.endCharacter,
         )
-        val symId = SymbolId(semanticDbToFullName(occ.symbol))
+        val symId = SymbolId.fromSemanticDb(occ.symbol)
 
         if occ.role.isDefinition then {
           val info = symbolInfos.get(occ.symbol)

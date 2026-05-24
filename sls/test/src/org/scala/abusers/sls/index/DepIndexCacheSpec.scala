@@ -9,14 +9,14 @@ import java.nio.file.Files
 object DepIndexCacheSpec extends SimpleIOSuite {
 
   private def sample(name: String): IndexedSymbol = IndexedSymbol(
-    id = SymbolId(s"com.example.$name"),
+    id = IndexTestFixtures.tid(s"com.example.$name"),
     name = name,
     kind = SymbolKind.Class,
     visibility = Visibility.Public,
     owner = None,
     location = Some(Location(SourceUri("jar:file:///foo.jar!/Foo.java"), 1, 0, 10, 1)),
     origin = SymbolOrigin.DependencySource("/path/to/foo-1.0.0.jar", SourceUri("jar:file:///foo.jar!/Foo.java")),
-    parents = List(SymbolId("java.lang.Object")),
+    parents = List(IndexTestFixtures.tid("java.lang.Object")),
     typeSignature = Some(s"com.example.$name"),
   )
 

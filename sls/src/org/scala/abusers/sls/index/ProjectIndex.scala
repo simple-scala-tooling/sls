@@ -189,7 +189,7 @@ object ProjectIndex {
     var refsMap = s.references
     newRefs.foreach { ref =>
       logger.info(
-        s"  addRef: ${ref.symbol.value} -> ${ref.location.uri}:${ref.location.startLine}:${ref.location.startCol} (${ref.referenceKind})"
+        s"  addRef: ${ref.symbol.render} -> ${ref.location.uri}:${ref.location.startLine}:${ref.location.startCol} (${ref.referenceKind})"
       )
       refsMap = refsMap.updatedWith(ref.symbol) {
         case Some(list) => Some(ref :: list)
