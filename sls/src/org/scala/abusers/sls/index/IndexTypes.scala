@@ -68,28 +68,57 @@ object SymbolId {
     *   - `None` on a trailing-`$` class → TERM id (the object companion)
     *   - `None` otherwise → TYPE id (the class)
     *   - `Some(name)` → TERM id rooted at the class's canonical owner chain, regardless of `$` suffix
+    *
+    * `innerOuterName` and `innerSimpleName` come from ASM's [[org.objectweb.asm.ClassVisitor#visitInnerClass]] for
+    * the currently-visited class, and disambiguate the meaning of `$` in the class name. Without them we cannot
+    * tell `Outer$Inner` (a nested class) apart from a user-written `Foo$Bar` or from the Scala 3 synthetic
+    * `foo$package` top-level wrapper. With them the caller passes the *outer*'s internal name and the *inner*'s
+    * source-simple name directly; we use them and never split on `$`.
+    *
+    * When no inner-class record is supplied (top-level class, `foo$package` wrapper, or `Foo$Bar` user identifier),
+    * the full class segment is treated as a single name — matching what TastyIndexer's `Symbol.name` and
+    * SemanticDB's tokenisation do.
     */
-  def fromJvm(jvmInternalClass: String, memberName: Option[String]): SymbolId = {
+  def fromJvm(
+      jvmInternalClass: String,
+      memberName: Option[String],
+      innerOuterName: Option[String] = None,
+      innerSimpleName: Option[String] = None,
+  ): SymbolId = {
     val dotted              = jvmInternalClass.replace('/', '.')
     val lastDot             = dotted.lastIndexOf('.')
     val (pkgStr, classPath) =
       if lastDot >= 0 then (dotted.substring(0, lastDot), dotted.substring(lastDot + 1))
       else ("", dotted)
-    val pkg = if pkgStr.isEmpty then Nil else pkgStr.split('.').toList
+    val pkg            = if pkgStr.isEmpty then Nil else pkgStr.split('.').toList
+    val endsWithDollar = classPath.endsWith("$")
 
-    val endsWithDollar       = classPath.endsWith("$")
-    val core                 = if endsWithDollar then classPath.dropRight(1) else classPath
-    val classSegments        = core.split('$').toList.filter(_.nonEmpty)
-    val (clsOwners, clsName) = classSegments match {
-      case Nil  => (Nil, "")
-      case many => (many.init, many.last)
-    }
-    memberName match {
-      case None    =>
-        if endsWithDollar then term(pkg, clsOwners, clsName)
-        else tpe(pkg, clsOwners, clsName)
-      case Some(m) =>
-        term(pkg, clsOwners :+ clsName, m)
+    innerOuterName match {
+      case Some(outer) =>
+        // Precise nested-class decomposition from the InnerClasses attribute.
+        val outerId    = fromJvm(outer, memberName = None)
+        val ownersBase = outerId.owners :+ outerId.name
+        val simpleName = innerSimpleName.getOrElse {
+          if endsWithDollar then classPath.dropRight(1) else classPath
+        }
+        memberName match {
+          case None    =>
+            if endsWithDollar then term(pkg, ownersBase, simpleName)
+            else tpe(pkg, ownersBase, simpleName)
+          case Some(m) =>
+            term(pkg, ownersBase :+ simpleName, m)
+        }
+      case None =>
+        // No nested-class record — keep the class segment intact. Covers top-level classes, the Scala 3
+        // `foo$package` top-level wrapper, and user identifiers with literal `$`.
+        val name = if endsWithDollar then classPath.dropRight(1) else classPath
+        memberName match {
+          case None    =>
+            if endsWithDollar then term(pkg, Nil, name)
+            else tpe(pkg, Nil, name)
+          case Some(m) =>
+            term(pkg, List(name), m)
+        }
     }
   }
 

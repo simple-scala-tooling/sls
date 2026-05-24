@@ -58,8 +58,17 @@ private class IndexClassVisitor(origin: SymbolOrigin) extends ClassVisitor(Opcod
   /** JVM internal name (e.g. `crossproducer/Lib$Inner` or `crossproducer/Lib$`). Passed through `SymbolId.fromJvm` to
     * produce canonical ids; kept verbatim so methods/fields can be built off the same internal name.
     */
-  private var internalName: String    = ""
-  private var classSymbolId: SymbolId = SymbolId.tpe(Nil, Nil, "")
+  private var internalName: String = ""
+  // Header info captured in `visit`, used in `visitEnd` once `visitInnerClass` has populated innerOuter/innerSimple.
+  private var pendingAccess: Int               = 0
+  private var pendingSuperName: String         = null
+  private var pendingInterfaces: Array[String] = Array.empty
+  private var skipped: Boolean                 = false
+  // InnerClasses attribute entry whose `name` matches this class, if any.
+  private var innerOuter: Option[String]   = None
+  private var innerSimple: Option[String]  = None
+  private var classIdMemo: Option[SymbolId] = None
+
   override def visit(
       version: Int,
       access: Int,
@@ -69,25 +78,34 @@ private class IndexClassVisitor(origin: SymbolOrigin) extends ClassVisitor(Opcod
       interfaces: Array[String],
   ): Unit = {
     internalName = name
-    classSymbolId = SymbolId.fromJvm(name, memberName = None)
+    pendingAccess = access
+    pendingSuperName = superName
+    pendingInterfaces = if (interfaces == null) Array.empty else interfaces
 
-    if (shouldSkipClass(name, access)) return
+    if (shouldSkipClass(name, access)) skipped = true
+  }
 
-    val kind    = classKind(name, access)
-    val vis     = accessToVisibility(access)
-    val parents = buildParents(superName, interfaces)
+  /** ASM invokes this once per record in the class's `InnerClasses` attribute. When the record's `name` matches the
+    * class currently being visited, capture the source-level outer/simple-name pair so id construction can sidestep
+    * the brittle `$`-split heuristic. Anonymous classes have `innerName = null`; skip them outright.
+    */
+  override def visitInnerClass(name: String, outerName: String, innerName: String, access: Int): Unit = {
+    if (name == internalName) {
+      innerOuter = Option(outerName)
+      innerSimple = Option(innerName)
+      if (innerName == null) skipped = true
+    }
+  }
 
-    symbols += IndexedSymbol(
-      id = classSymbolId,
-      name = classSymbolId.name,
-      kind = kind,
-      visibility = vis,
-      owner = ownerFromInternalName(name),
-      location = None,
-      origin = origin,
-      parents = parents,
-      typeSignature = Some(classSymbolId.render),
-    )
+  /** Computed lazily so it sees `innerOuter`/`innerSimple` captured by [[visitInnerClass]] (which ASM invokes after
+    * `visit` but before the first `visitMethod`/`visitField`).
+    */
+  private def classSymbolId(): SymbolId = classIdMemo match {
+    case Some(id) => id
+    case None     =>
+      val id = SymbolId.fromJvm(internalName, memberName = None, innerOuter, innerSimple)
+      classIdMemo = Some(id)
+      id
   }
 
   override def visitMethod(
@@ -97,11 +115,12 @@ private class IndexClassVisitor(origin: SymbolOrigin) extends ClassVisitor(Opcod
       signature: String,
       exceptions: Array[String],
   ): MethodVisitor = {
+    if (skipped) return null
     if (shouldSkipMethod(name, access)) return null
 
     val kind     = if (name == "<init>") SymbolKind.Constructor else SymbolKind.Method
     val vis      = accessToVisibility(access)
-    val methodId = SymbolId.fromJvm(internalName, memberName = Some(name))
+    val methodId = SymbolId.fromJvm(internalName, memberName = Some(name), innerOuter, innerSimple)
     val sig      = Option(signature).getOrElse(descriptor)
 
     symbols += IndexedSymbol(
@@ -109,7 +128,7 @@ private class IndexClassVisitor(origin: SymbolOrigin) extends ClassVisitor(Opcod
       name = name,
       kind = kind,
       visibility = vis,
-      owner = Some(classSymbolId),
+      owner = Some(classSymbolId()),
       location = None,
       origin = origin,
       parents = Nil,
@@ -125,6 +144,7 @@ private class IndexClassVisitor(origin: SymbolOrigin) extends ClassVisitor(Opcod
       signature: String,
       value: AnyRef,
   ): FieldVisitor = {
+    if (skipped) return null
     if (isSynthetic(access)) return null
 
     val vis  = accessToVisibility(access)
@@ -132,7 +152,7 @@ private class IndexClassVisitor(origin: SymbolOrigin) extends ClassVisitor(Opcod
       if ((access & Opcodes.ACC_ENUM) != 0) SymbolKind.EnumCase
       else if ((access & Opcodes.ACC_FINAL) != 0) SymbolKind.Val
       else SymbolKind.Var
-    val fieldId = SymbolId.fromJvm(internalName, memberName = Some(name))
+    val fieldId = SymbolId.fromJvm(internalName, memberName = Some(name), innerOuter, innerSimple)
     val sig     = Option(signature).getOrElse(descriptor)
 
     symbols += IndexedSymbol(
@@ -140,13 +160,32 @@ private class IndexClassVisitor(origin: SymbolOrigin) extends ClassVisitor(Opcod
       name = name,
       kind = kind,
       visibility = vis,
-      owner = Some(classSymbolId),
+      owner = Some(classSymbolId()),
       location = None,
       origin = origin,
       parents = Nil,
       typeSignature = Some(sig),
     )
     null
+  }
+
+  override def visitEnd(): Unit = {
+    if (skipped) return
+    val id      = classSymbolId()
+    val kind    = classKind(internalName, pendingAccess)
+    val vis     = accessToVisibility(pendingAccess)
+    val parents = buildParents(pendingSuperName, pendingInterfaces)
+    symbols += IndexedSymbol(
+      id = id,
+      name = id.name,
+      kind = kind,
+      visibility = vis,
+      owner = innerOuter.map(SymbolId.fromJvm(_, memberName = None)),
+      location = None,
+      origin = origin,
+      parents = parents,
+      typeSignature = Some(id.render),
+    )
   }
 
   private def classKind(name: String, access: Int): SymbolKind = {
@@ -192,22 +231,6 @@ private class IndexClassVisitor(origin: SymbolOrigin) extends ClassVisitor(Opcod
     parents.toList
   }
 
-  /** Owner of a class is its lexically-enclosing class for inner classes, otherwise None. We deliberately do *not*
-    * encode the package as the owner — packages are not types in our canonical model.
-    */
-  private def ownerFromInternalName(name: String): Option[SymbolId] = {
-    val lastSlash = name.lastIndexOf('/')
-    // Trailing `$` on a class name means the module class itself; strip it before looking for an outer.
-    val core      = if (name.endsWith("$")) name.dropRight(1) else name
-    val classPart =
-      if (lastSlash >= 0) core.substring(lastSlash + 1) else core
-    val lastDollar = classPart.lastIndexOf('$')
-    if (lastDollar > 0) {
-      val pkgPart   = if (lastSlash >= 0) name.substring(0, lastSlash + 1) else ""
-      val ownerName = pkgPart + classPart.substring(0, lastDollar)
-      Some(SymbolId.fromJvm(ownerName, memberName = None))
-    } else None
-  }
 }
 
 object BytecodeIndexer {

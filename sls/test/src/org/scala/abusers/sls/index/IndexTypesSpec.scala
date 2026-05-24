@@ -33,9 +33,29 @@ object IndexTypesSpec extends SimpleIOSuite {
     IO(expect(id == SymbolId.term(List("crossproducer"), Nil, "Lib")))
   }
 
-  test("fromJvm handles inner classes") {
-    val id = SymbolId.fromJvm("com/example/Outer$Inner", memberName = None)
+  test("fromJvm decomposes nested classes via the InnerClasses attribute") {
+    val id = SymbolId.fromJvm(
+      "com/example/Outer$Inner",
+      memberName = None,
+      innerOuterName = Some("com/example/Outer"),
+      innerSimpleName = Some("Inner"),
+    )
     IO(expect(id == SymbolId.tpe(List("com", "example"), List("Outer"), "Inner")))
+  }
+
+  test("fromJvm without inner-class info keeps `$` inside the simple name (no naive split)") {
+    // No InnerClasses record ⇒ bytecode can't tell `Foo$Bar` from `Outer$Inner` apart, so keep the segment whole.
+    val id = SymbolId.fromJvm("com/example/Foo$Bar", memberName = None)
+    IO(expect(id == SymbolId.tpe(List("com", "example"), Nil, "Foo$Bar")))
+  }
+
+  test("fromJvm on the Scala 3 `foo$package` top-level wrapper preserves the synthetic name") {
+    val obj    = SymbolId.fromJvm("foo/foo$package$", memberName = None)
+    val method = SymbolId.fromJvm("foo/foo$package$", memberName = Some("bar"))
+    IO(
+      expect(obj == SymbolId.term(List("foo"), Nil, "foo$package")) &&
+        expect(method == SymbolId.term(List("foo"), List("foo$package"), "bar"))
+    )
   }
 
   test("fromSemanticDb parses a type symbol") {
