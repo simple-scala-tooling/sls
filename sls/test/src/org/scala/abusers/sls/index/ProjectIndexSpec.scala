@@ -107,6 +107,30 @@ object ProjectIndexSpec extends SimpleIOSuite {
     } yield expect(result.size == 2)
   }
 
+  test("getReferences returns every inserted ref, with no loss or duplication") {
+    val r1 = SymbolReference(SymbolId("pkg.T"), Location(fileA, 1, 0, 1, 5), ReferenceKind.Call)
+    val r2 = SymbolReference(SymbolId("pkg.T"), Location(fileA, 2, 0, 2, 5), ReferenceKind.Call)
+    val r3 = SymbolReference(SymbolId("pkg.T"), Location(fileA, 3, 0, 3, 5), ReferenceKind.Call)
+    for {
+      idx  <- ProjectIndex.empty
+      _    <- idx.updateFiles(Map(fileA -> (Nil, List(r1, r2, r3))))
+      refs <- idx.getReferences(SymbolId("pkg.T"))
+    } yield expect(refs.size == 3) and expect(refs.toSet == Set(r1, r2, r3))
+  }
+
+  test("updateFiles replaces — not appends — refs for the same URI") {
+    // A second updateFiles for the same URI must remove old refs before inserting new.
+    // Without removal, repeated compile events accumulate stale references.
+    val old = SymbolReference(SymbolId("pkg.T"), Location(fileA, 1, 0, 1, 5), ReferenceKind.Call)
+    val neu = SymbolReference(SymbolId("pkg.T"), Location(fileA, 9, 0, 9, 5), ReferenceKind.Call)
+    for {
+      idx  <- ProjectIndex.empty
+      _    <- idx.updateFiles(Map(fileA -> (Nil, List(old))))
+      _    <- idx.updateFiles(Map(fileA -> (Nil, List(neu))))
+      refs <- idx.getReferences(SymbolId("pkg.T"))
+    } yield expect(refs.size == 1) and expect(refs.head.location.startLine == 9)
+  }
+
   test("getSubtypes correct after insertion and clean after removal") {
     val parent = sym("Parent", fileA)
     val child  = sym("Child", fileA, parents = List(SymbolId("pkg.Parent")))

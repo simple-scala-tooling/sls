@@ -39,7 +39,7 @@ object JavaIndexerSpec extends SimpleIOSuite {
     for {
       syms <- allSymbols
       areaOnSquare = syms.find(s =>
-        s.name == "area" && s.kind == SymbolKind.Method && s.owner.exists(_.value == "fixture.Square")
+        s.name == "area" && s.kind == SymbolKind.Method && s.owner.exists(_ == SymbolId("fixture.Square"))
       )
     } yield expect(areaOnSquare.isDefined)
   }
@@ -66,10 +66,10 @@ object JavaIndexerSpec extends SimpleIOSuite {
     for {
       syms <- allSymbols
       refs <- allRefs
-      square      = syms.find(_.name == "Square")
+      square      = syms.find(_.id == SymbolId("fixture.Square"))
       extendsRefs = refs.filter(_.referenceKind == ReferenceKind.Extends)
-    } yield expect(square.exists(_.parents.exists(_.value.contains("Shapes")))) and
-      expect(extendsRefs.exists(_.symbol.value.contains("Shapes")))
+    } yield expect(square.exists(_.parents.contains(SymbolId("fixture.Shapes")))) and
+      expect(extendsRefs.exists(_.symbol == SymbolId("fixture.Shapes")))
   }
 
   test("origin is ProjectJavaSource") {
