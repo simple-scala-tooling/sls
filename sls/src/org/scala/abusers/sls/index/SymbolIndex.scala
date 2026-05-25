@@ -16,10 +16,10 @@ class SymbolIndex(
       case None           => dependency.getSymbol(id)
     }
 
-  def projectSymbolCount: IO[Int]            = project.symbolCount
-  def dependencySymbolCount: IO[Int]         = dependency.symbolCount
-  def fileCount: IO[Int]                     = project.fileCount
-  def jarCount: IO[Int]                      = dependency.jarCount
+  def projectSymbolCount: IO[Int]             = project.symbolCount
+  def dependencySymbolCount: IO[Int]          = dependency.symbolCount
+  def fileCount: IO[Int]                      = project.fileCount
+  def jarCount: IO[Int]                       = dependency.jarCount
   def allReferenceTargets: IO[List[SymbolId]] = project.allReferenceTargets
 
   def getSymbolsByName(name: String): IO[Set[IndexedSymbol]] =
