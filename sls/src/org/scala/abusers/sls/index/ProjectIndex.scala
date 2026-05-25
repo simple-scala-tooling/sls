@@ -4,7 +4,7 @@ import cats.effect.IO
 import cats.effect.Ref
 import org.scala.abusers.sls.SourceUri
 
-class ProjectIndex private (state: Ref[IO, ProjectIndex.State]) {
+private[index] class ProjectIndex private (state: Ref[IO, ProjectIndex.State]) {
 
   import ProjectIndex.*
 
@@ -71,9 +71,9 @@ class ProjectIndex private (state: Ref[IO, ProjectIndex.State]) {
       uris.foldLeft(s)(removeFileFromState)
     }
 
-  def symbolCount: IO[Int]                   = state.get.map(_.core.symbols.size)
-  def fileCount: IO[Int]                     = state.get.map(_.byFile.size)
-  def debugReferenceKeys: IO[List[SymbolId]] = state.get.map(_.references.keys.toList)
+  def symbolCount: IO[Int]                    = state.get.map(_.core.symbols.size)
+  def fileCount: IO[Int]                      = state.get.map(_.byFile.size)
+  def allReferenceTargets: IO[List[SymbolId]] = state.get.map(_.references.keys.toList)
 }
 
 object ProjectIndex {

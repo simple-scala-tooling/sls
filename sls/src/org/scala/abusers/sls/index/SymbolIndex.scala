@@ -6,8 +6,8 @@ import org.scala.abusers.sls.SourceUri
 import scala.concurrent.duration.*
 
 class SymbolIndex(
-    val project: ProjectIndex,
-    val dependency: DependencyIndex,
+    private[index] val project: ProjectIndex,
+    private[index] val dependency: DependencyIndex,
 ) {
 
   def getSymbol(id: SymbolId): IO[Option[IndexedSymbol]] =
@@ -15,6 +15,12 @@ class SymbolIndex(
       case some @ Some(_) => IO.pure(some)
       case None           => dependency.getSymbol(id)
     }
+
+  def projectSymbolCount: IO[Int]            = project.symbolCount
+  def dependencySymbolCount: IO[Int]         = dependency.symbolCount
+  def fileCount: IO[Int]                     = project.fileCount
+  def jarCount: IO[Int]                      = dependency.jarCount
+  def allReferenceTargets: IO[List[SymbolId]] = project.allReferenceTargets
 
   def getSymbolsByName(name: String): IO[Set[IndexedSymbol]] =
     for {
@@ -100,6 +106,12 @@ class SymbolIndex(
 }
 
 object SymbolIndex {
-  def apply(project: ProjectIndex, dependency: DependencyIndex): SymbolIndex =
+  def empty: IO[SymbolIndex] =
+    for {
+      project    <- ProjectIndex.empty
+      dependency <- DependencyIndex.empty
+    } yield new SymbolIndex(project, dependency)
+
+  private[index] def apply(project: ProjectIndex, dependency: DependencyIndex): SymbolIndex =
     new SymbolIndex(project, dependency)
 }

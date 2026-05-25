@@ -3,7 +3,7 @@ package org.scala.abusers.sls.index
 import cats.effect.IO
 import cats.effect.Ref
 
-class DependencyIndex private (state: Ref[IO, DependencyIndex.State]) {
+private[index] class DependencyIndex private (state: Ref[IO, DependencyIndex.State]) {
 
   import DependencyIndex.*
 

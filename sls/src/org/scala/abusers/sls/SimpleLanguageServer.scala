@@ -82,11 +82,9 @@ object SimpleScalaServer extends ProfilingIOApp {
       cancelTokens      <- IOCancelTokens.instance
       diagnosticManager <- DiagnosticManager.instance.toResource
       computationQueue  <- ComputationQueue.instance.toResource
-      projectIndex      <- index.ProjectIndex.empty.toResource
-      dependencyIndex   <- index.DependencyIndex.empty.toResource
+      symbolIndex       <- index.SymbolIndex.empty.toResource
       bytecodeIndexer = index.BytecodeIndexer()
-      symbolIndex     = index.SymbolIndex(projectIndex, dependencyIndex)
-      indexManager    = index.IndexManager(projectIndex, dependencyIndex, bytecodeIndexer)
+      indexManager    = index.IndexManager(symbolIndex, bytecodeIndexer)
     } yield ServerImpl(
       pcProvider,
       cancelTokens,

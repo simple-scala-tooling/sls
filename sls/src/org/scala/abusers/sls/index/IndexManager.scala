@@ -18,13 +18,17 @@ import java.io.FileInputStream
 import java.util.zip.ZipInputStream
 
 case class IndexManager(
-    projectIndex: ProjectIndex,
-    dependencyIndex: DependencyIndex,
+    symbolIndex: SymbolIndex,
     bytecodeIndexer: BytecodeIndexer,
     depIndexCache: DepIndexCache = DepIndexCache.default,
 ) {
-  private val logger        = LoggerFactory.getLogger(this.getClass)
-  private val coursierCache = Cache.create()
+  private val logger          = LoggerFactory.getLogger(this.getClass)
+  private val coursierCache   = Cache.create()
+  private val projectIndex    = symbolIndex.project
+  private val dependencyIndex = symbolIndex.dependency
+
+  def updateOpenFile(uri: SourceUri, symbols: List[IndexedSymbol], refs: List[SymbolReference]): IO[Unit] =
+    projectIndex.updateFiles(Map(uri -> (symbols, refs)))
 
   def indexDependencies(targets: Set[ScalaBuildTargetInformation]): IO[Unit] = {
     val projectDirs = targets.flatMap(t => Set(t.classesDir, t.classJarPath))

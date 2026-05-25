@@ -339,7 +339,7 @@ class ServerImpl(
               .interruptible(pc.semanticdbTextDocument(uri.toURI, textDocument.content))
               .flatMap { bytes =>
                 val (syms, refs) = index.SemanticdbIndexer.indexDocument(uri, bytes, info.displayName)
-                symbolIndex.project.updateFiles(Map(uri -> (syms, refs)))
+                indexManager.updateOpenFile(uri, syms, refs)
               }
               .handleErrorWith(e => IO(logger.warn(s"SemanticDB index update failed for $uri: ${e.getMessage}")))
           } yield ()
@@ -381,7 +381,7 @@ class ServerImpl(
         _    <- IO(logger.info(s"References: pcSymbol=$pcSymbol, targetId=${targetId.render}"))
         refs <- symbolIndex.getReferences(targetId)
         _    <- IO(logger.info(s"References for ${targetId.render}: ${refs.size} refs"))
-        _    <- symbolIndex.project.debugReferenceKeys.flatMap(keys =>
+        _    <- symbolIndex.allReferenceTargets.flatMap(keys =>
           IO(logger.info(s"All reference keys in index (${keys.size}): ${keys.take(20).map(_.render)}"))
         )
       } yield lsp.TextDocumentReferencesOpOutput(
@@ -433,10 +433,10 @@ class ServerImpl(
   def slsDebugIndexOp(params: Option[SlsDebugIndexParams]): IO[SlsDebugIndexOpOutput] = {
     val query = params.flatMap(_.query).filter(_.nonEmpty)
     (for {
-      projCount <- symbolIndex.project.symbolCount
-      depCount  <- symbolIndex.dependency.symbolCount
-      fileCount <- symbolIndex.project.fileCount
-      jarCount  <- symbolIndex.dependency.jarCount
+      projCount <- symbolIndex.projectSymbolCount
+      depCount  <- symbolIndex.dependencySymbolCount
+      fileCount <- symbolIndex.fileCount
+      jarCount  <- symbolIndex.jarCount
       matching  <- query.fold(IO.pure(List.empty[index.IndexedSymbol]))(symbolIndex.searchSymbols)
     } yield SlsDebugIndexOpOutput(
       SlsDebugIndexResult(
