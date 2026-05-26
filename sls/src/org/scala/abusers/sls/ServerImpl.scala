@@ -370,44 +370,50 @@ class ServerImpl(
   )(using SynchronizedState): IO[lsp.TextDocumentReferencesOpOutput] = {
     val uri      = params.textDocument.sourceUri
     val position = params.position
-    cancelTokens.mkCancelToken.use { token =>
-      for {
-        ready <- indexLifecycle.awaitReady(2.seconds)
-        _     <- ready match {
-          case Right(_) => IO.unit
-          case Left(p)  =>
-            IO(logger.info(s"References query while index in phase $p, returning partial results")) *>
-              lspClient.logMessage(s"Index is still $p — references may be incomplete")
-        }
-        docState <- textDocumentSyncManager.get(uri)
-        offsetParams = toOffsetParams(position, docState, token)
-        info      <- bspStateManager.get(uri)
-        pc        <- pcProvider.get(info)
-        defResult <- IO.interruptible(pc.definition(offsetParams))
-        pcSymbol = defResult.symbol()
-        targetId = index.SymbolId.fromSemanticDb(pcSymbol)
-        _    <- IO(logger.info(s"References: pcSymbol=$pcSymbol, targetId=${targetId.render}"))
-        refs <- symbolIndex.getReferences(targetId)
-        _    <- IO(logger.info(s"References for ${targetId.render}: ${refs.size} refs"))
-        _    <- symbolIndex.allReferenceTargets.flatMap(keys =>
-          IO(logger.info(s"All reference keys in index (${keys.size}): ${keys.take(20).map(_.render)}"))
-        )
-      } yield lsp.TextDocumentReferencesOpOutput(
-        if refs.isEmpty then None
-        else
-          Some(
-            refs.map(ref =>
-              lsp.Location(
-                uri = ref.location.uri.toLspUri,
-                range = lsp.Range(
-                  start = lsp.Position(ref.location.startLine, ref.location.startCol),
-                  end = lsp.Position(ref.location.endLine, ref.location.endCol),
-                ),
+    for {
+      ready <- indexLifecycle.awaitReady(2.seconds)
+      _     <- ready match {
+        case Right(_) => IO.unit
+        case Left(p)  =>
+          val msg = p match {
+            case index.IndexPhase.Failed => "Index initialization failed — references may be incomplete"
+            case other                   => s"Index is still $other — references may be incomplete"
+          }
+          IO(logger.info(s"References query while index in phase $p, returning partial results")) *>
+            lspClient.logMessage(msg)
+      }
+      result <- cancelTokens.mkCancelToken.use { token =>
+        for {
+          docState <- textDocumentSyncManager.get(uri)
+          offsetParams = toOffsetParams(position, docState, token)
+          info      <- bspStateManager.get(uri)
+          pc        <- pcProvider.get(info)
+          defResult <- IO.interruptible(pc.definition(offsetParams))
+          pcSymbol = defResult.symbol()
+          targetId = index.SymbolId.fromSemanticDb(pcSymbol)
+          _    <- IO(logger.info(s"References: pcSymbol=$pcSymbol, targetId=${targetId.render}"))
+          refs <- symbolIndex.getReferences(targetId)
+          _    <- IO(logger.info(s"References for ${targetId.render}: ${refs.size} refs"))
+          _    <- symbolIndex.allReferenceTargets.flatMap(keys =>
+            IO(logger.info(s"All reference keys in index (${keys.size}): ${keys.take(20).map(_.render)}"))
+          )
+        } yield lsp.TextDocumentReferencesOpOutput(
+          if refs.isEmpty then None
+          else
+            Some(
+              refs.map(ref =>
+                lsp.Location(
+                  uri = ref.location.uri.toLspUri,
+                  range = lsp.Range(
+                    start = lsp.Position(ref.location.startLine, ref.location.startCol),
+                    end = lsp.Position(ref.location.endLine, ref.location.endCol),
+                  ),
+                )
               )
             )
-          )
-      )
-    }
+        )
+      }
+    } yield result
   }
 
   def workspaceSymbolOp(params: lsp.WorkspaceSymbolParams): IO[lsp.WorkspaceSymbolOpOutput] =

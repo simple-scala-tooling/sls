@@ -35,12 +35,14 @@ case class IndexManager(
   def updateOpenFile(uri: SourceUri, symbols: List[IndexedSymbol], refs: List[SymbolReference]): IO[Unit] =
     projectIndex.updateFiles(Map(uri -> (symbols, refs)))
 
-  /** Kick off the initial index population in the background. Flips lifecycle Cold → Bootstrapping immediately,
-    * spawns the indexers under [[supervisor]] so shutdown cancels them cleanly, and flips Bootstrapping → Ready when
-    * the parallel passes finish. Returns once the fiber is registered — callers do not block on indexing.
+  /** Kick off the initial index population in the background. Atomically flips Cold → Bootstrapping; if the
+    * lifecycle is past Cold the call is a no-op (idempotent). On success flips Bootstrapping → Ready; on error
+    * flips Bootstrapping → Failed so [[IndexLifecycle.awaitReady]] short-circuits instead of waiting on a fiber
+    * that will never complete. Spawns under [[supervisor]] so shutdown cancels the work cleanly. Returns once
+    * the fiber is registered — callers do not block on indexing.
     *
-    * The [[notifyProgress]] callback fires once per transition with a human-readable summary so the LSP client can surface
-    * progress to the user (`window/logMessage` in the wiring layer).
+    * The [[notifyProgress]] callback fires at start and end with a human-readable summary so the LSP client can
+    * surface progress to the user (`window/logMessage` in the wiring layer).
     */
   def bootstrap(targets: Set[ScalaBuildTargetInformation]): IO[Unit] = {
     val work = for {
@@ -65,8 +67,16 @@ case class IndexManager(
       _ <- lifecycle.transition(IndexPhase.Ready)
     } yield ()
 
-    lifecycle.transition(IndexPhase.Bootstrapping) *>
-      supervisor.supervise(work.handleErrorWith(e => IO(logger.error("Index bootstrap failed", e)))).void
+    val supervised = work.handleErrorWith { e =>
+      IO(logger.error("Index bootstrap failed", e)) *>
+        lifecycle.transition(IndexPhase.Failed) *>
+        notifyProgress(s"Index bootstrap failed: ${e.getMessage}")
+    }
+
+    lifecycle.tryStartBootstrap.flatMap {
+      case true  => supervisor.supervise(supervised).void
+      case false => lifecycle.phase.flatMap(p => IO(logger.info(s"bootstrap skipped: lifecycle already in phase $p")))
+    }
   }
 
   def indexDependencies(targets: Set[ScalaBuildTargetInformation]): IO[Unit] = {

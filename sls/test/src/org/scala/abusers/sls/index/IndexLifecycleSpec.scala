@@ -47,4 +47,41 @@ object IndexLifecycleSpec extends SimpleIOSuite {
       result <- (flip, lifecycle.awaitReady(2.seconds)).parMapN((_, r) => r)
     } yield expect(result == Right(()))
   }
+
+  test("awaitReady short-circuits on Failed without waiting the full timeout") {
+    for {
+      lifecycle <- IndexLifecycle.empty
+      _         <- lifecycle.transition(IndexPhase.Failed)
+      start     <- IO.monotonic
+      result    <- lifecycle.awaitReady(5.seconds)
+      end       <- IO.monotonic
+    } yield expect(result == Left(IndexPhase.Failed)) and expect((end - start) < 1.second)
+  }
+
+  test("awaitReady unblocks when transition flips to Failed") {
+    for {
+      lifecycle <- IndexLifecycle.empty
+      _         <- lifecycle.transition(IndexPhase.Bootstrapping)
+      flip   = IO.sleep(50.millis) *> lifecycle.transition(IndexPhase.Failed)
+      result <- (flip, lifecycle.awaitReady(2.seconds)).parMapN((_, r) => r)
+    } yield expect(result == Left(IndexPhase.Failed))
+  }
+
+  test("tryStartBootstrap wins exactly once") {
+    for {
+      lifecycle <- IndexLifecycle.empty
+      first     <- lifecycle.tryStartBootstrap
+      second    <- lifecycle.tryStartBootstrap
+      p         <- lifecycle.phase
+    } yield expect(first) and expect(!second) and expect(p == IndexPhase.Bootstrapping)
+  }
+
+  test("tryStartBootstrap returns false when past Cold") {
+    for {
+      lifecycle <- IndexLifecycle.empty
+      _         <- lifecycle.transition(IndexPhase.Ready)
+      won       <- lifecycle.tryStartBootstrap
+      p         <- lifecycle.phase
+    } yield expect(!won) and expect(p == IndexPhase.Ready)
+  }
 }
