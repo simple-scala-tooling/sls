@@ -29,5 +29,7 @@
 
 - **Phase 3** `CoreState` deduplication — extracted `private[index] CoreState(symbols, nameTrie, camelCaseTrie, subtypes)` with `add(List[IndexedSymbol])` / `remove(Set[SymbolId])`. `ProjectIndex.State` wraps `core` + `byFile` + `references` + `refsByFile`; `DependencyIndex.State` wraps `core` + `jarFilters` + `symbolJar`. The `var nameTrie = ...; nameTrie = nameTrie.insert(...)` accumulators collapsed to `foldLeft` over `CoreState.add`. Wrapping state-update sites are now ~11–22 lines each (down from ~41–55). All existing specs stay green.
 
+- **Phase 4** Seal the module boundary — `ProjectIndex` and `DependencyIndex` are now `private[index]`; `SymbolIndex`'s `project`/`dependency` fields are `private[index] val`. `IndexManager` takes a `SymbolIndex` instead of the two stores directly, and owns the new `updateOpenFile(uri, syms, refs)` verb that `ServerImpl.pcDiagnostics` calls (replaces the `symbolIndex.project.updateFiles(...)` reach-through). Introspection (`projectSymbolCount`, `dependencySymbolCount`, `fileCount`, `jarCount`, `allReferenceTargets` — renamed from `debugReferenceKeys`) lives on `SymbolIndex`. `SimpleLanguageServer` constructs the façade via `SymbolIndex.empty`. Both grep success criteria are zero hits.
+
 ## Next
 - **5.1–5.6** LSP feature handlers (references, workspace/symbol, rename, type hierarchy, didDeleteFiles)

@@ -57,7 +57,7 @@ object IndexManagerSpec extends SimpleIOSuite {
     for {
       pi <- ProjectIndex.empty
       di <- DependencyIndex.empty
-      mgr = IndexManager(pi, di, bytecodeIndexer)
+      mgr = IndexManager(SymbolIndex(pi, di), bytecodeIndexer)
       _      <- pi.updateFiles(Map(uri -> (List(sym), Nil)))
       before <- pi.getSymbol(IndexTestFixtures.tid("test.Foo"))
       _      <- mgr.onFilesDeleted(Set(uri))
@@ -69,7 +69,7 @@ object IndexManagerSpec extends SimpleIOSuite {
     for {
       pi <- ProjectIndex.empty
       di <- DependencyIndex.empty
-      mgr = IndexManager(pi, di, bytecodeIndexer)
+      mgr = IndexManager(SymbolIndex(pi, di), bytecodeIndexer)
       _ <- mgr.onFilesDeleted(Set.empty)
     } yield success
   }
@@ -80,7 +80,7 @@ object IndexManagerSpec extends SimpleIOSuite {
       jar <- createJar(List(cls))
       pi  <- ProjectIndex.empty
       di  <- DependencyIndex.empty
-      mgr = IndexManager(pi, di, bytecodeIndexer)
+      mgr = IndexManager(SymbolIndex(pi, di), bytecodeIndexer)
       syms  <- bytecodeIndexer.indexJar(jar)
       _     <- di.addJar(jar.toNioPath.toString, syms)
       found <- di.searchSymbols("widget")
@@ -91,7 +91,7 @@ object IndexManagerSpec extends SimpleIOSuite {
     for {
       pi <- ProjectIndex.empty
       di <- DependencyIndex.empty
-      mgr        = IndexManager(pi, di, bytecodeIndexer)
+      mgr        = IndexManager(SymbolIndex(pi, di), bytecodeIndexer)
       tmp        = os.temp.dir(prefix = "corrupt-jar-test")
       corruptJar = tmp / "corrupt.jar"
       _ <- IO.blocking(os.write(corruptJar, "not a jar"))
@@ -260,7 +260,7 @@ object IndexManagerSpec extends SimpleIOSuite {
     for {
       pi <- ProjectIndex.empty
       di <- DependencyIndex.empty
-      mgr = IndexManager(pi, di, bytecodeIndexer)
+      mgr = IndexManager(SymbolIndex(pi, di), bytecodeIndexer)
       _ <- pi.updateFiles(
         Map(
           uri1 -> (List(sym1), Nil),
@@ -279,7 +279,7 @@ object IndexManagerSpec extends SimpleIOSuite {
       jar <- createJar(List(mainCls))
       pi  <- ProjectIndex.empty
       di  <- DependencyIndex.empty
-      mgr = IndexManager(pi, di, bytecodeIndexer)
+      mgr = IndexManager(SymbolIndex(pi, di), bytecodeIndexer)
       _     <- mgr.indexJarSafely(jar, Nil)
       found <- di.getSymbolsByName("NoSrc")
     } yield expect(found.exists(_.origin.isInstanceOf[SymbolOrigin.DependencyClassfile]))
@@ -296,7 +296,7 @@ object IndexManagerSpec extends SimpleIOSuite {
       jar <- createJar(List(garbageTasty, realClass))
       pi  <- ProjectIndex.empty
       di  <- DependencyIndex.empty
-      mgr = IndexManager(pi, di, bytecodeIndexer)
+      mgr = IndexManager(SymbolIndex(pi, di), bytecodeIndexer)
       _     <- mgr.indexJarSafely(jar, Nil)
       found <- di.getSymbolsByName("Survivor")
     } yield expect(found.exists(_.origin.isInstanceOf[SymbolOrigin.DependencyClassfile]))
