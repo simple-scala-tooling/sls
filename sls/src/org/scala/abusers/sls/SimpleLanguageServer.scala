@@ -2,6 +2,7 @@ package org.scala.abusers.sls
 
 import cats.effect.*
 import cats.effect.std.Console
+import cats.effect.std.Supervisor
 import cats.syntax.all.*
 import jsonrpclib.fs2.*
 import jsonrpclib.smithy4sinterop.ClientStub
@@ -9,6 +10,7 @@ import org.scala.abusers.csp.CspServer
 import org.scala.abusers.pc.IOCancelTokens
 import org.scala.abusers.pc.PresentationCompilerProvider
 import org.scala.abusers.profiling.runtime.ProfilingIOApp
+import org.scala.abusers.sls.LoggingUtils.*
 import org.typelevel.otel4s.metrics.Meter
 import org.typelevel.otel4s.trace.Tracer
 
@@ -83,8 +85,11 @@ object SimpleScalaServer extends ProfilingIOApp {
       diagnosticManager <- DiagnosticManager.instance.toResource
       computationQueue  <- ComputationQueue.instance.toResource
       symbolIndex       <- index.SymbolIndex.empty.toResource
+      indexLifecycle    <- index.IndexLifecycle.empty.toResource
+      indexSupervisor   <- Supervisor[IO]
       bytecodeIndexer = index.BytecodeIndexer()
-      indexManager    = index.IndexManager(symbolIndex, bytecodeIndexer)
+      indexManager    =
+        index.IndexManager(symbolIndex, bytecodeIndexer, indexLifecycle, indexSupervisor, lspClient.logMessage)
     } yield ServerImpl(
       pcProvider,
       cancelTokens,
@@ -98,5 +103,7 @@ object SimpleScalaServer extends ProfilingIOApp {
       bspStateManager,
       indexManager,
       symbolIndex,
+      indexLifecycle,
+      indexSupervisor,
     )
 }

@@ -4,6 +4,7 @@ package sls
 import bsp.InitializeBuildParams
 import cats.effect.kernel.Deferred
 import cats.effect.kernel.Resource
+import cats.effect.std.Supervisor
 import cats.effect.IO
 import cats.syntax.all.*
 import fs2.io.file.Files
@@ -51,6 +52,8 @@ class ServerImpl(
     bspStateManager: BspStateManager,
     indexManager: index.IndexManager,
     symbolIndex: index.SymbolIndex,
+    indexLifecycle: index.IndexLifecycle,
+    indexSupervisor: Supervisor[IO],
 )(using Tracer[IO], Meter[IO])
     extends SlsLanguageServer[IO] {
 
@@ -96,14 +99,7 @@ class ServerImpl(
       for {
         _       <- bspStateManager.importBuild
         targets <- bspStateManager.getAllTargets
-        _       <- List(
-          indexManager.indexJdkSources(),
-          indexManager.indexDependencies(targets),
-          indexManager.indexExistingProjectArtifacts(targets),
-        ).parSequence_.handleErrorWith { e =>
-          IO(logger.error("Background indexing failed", e)) *>
-            lspClient.logMessage(s"Indexing failed: ${e.getMessage}")
-        }.start
+        _       <- indexManager.bootstrap(targets)
       } yield ()
     }
 
@@ -284,16 +280,21 @@ class ServerImpl(
     for {
       _    <- textDocumentSyncManager.didSave(params)
       info <- bspStateManager.get(uri)
-      _    <- bspStateManager
-        .compileWithCSP(uri)
-        .flatMap { res =>
-          updateOutputClasspath(info, AbsolutePath(res.outputJar)) *>
-            indexManager
-              .onCompilationComplete(info, res)
-              .handleError(e => lspClient.logMessage(s"Failed to update index after compilation: ${e.getMessage()}"))
-        }
-        .timeout(60.seconds)
-        .start
+      _    <- indexSupervisor
+        .supervise(
+          bspStateManager
+            .compileWithCSP(uri)
+            .flatMap { res =>
+              updateOutputClasspath(info, AbsolutePath(res.outputJar)) *>
+                indexManager
+                  .onCompilationComplete(info, res)
+                  .handleError(e =>
+                    lspClient.logMessage(s"Failed to update index after compilation: ${e.getMessage()}")
+                  )
+            }
+            .timeout(60.seconds)
+        )
+        .void
     } yield ()
   }
 
@@ -371,6 +372,13 @@ class ServerImpl(
     val position = params.position
     cancelTokens.mkCancelToken.use { token =>
       for {
+        ready <- indexLifecycle.awaitReady(2.seconds)
+        _     <- ready match {
+          case Right(_) => IO.unit
+          case Left(p)  =>
+            IO(logger.info(s"References query while index in phase $p, returning partial results")) *>
+              lspClient.logMessage(s"Index is still $p — references may be incomplete")
+        }
         docState <- textDocumentSyncManager.get(uri)
         offsetParams = toOffsetParams(position, docState, token)
         info      <- bspStateManager.get(uri)

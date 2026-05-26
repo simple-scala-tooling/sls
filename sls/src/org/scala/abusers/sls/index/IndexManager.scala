@@ -1,7 +1,9 @@
 package org.scala.abusers
 package sls.index
 
+import cats.effect.std.Supervisor
 import cats.effect.IO
+import cats.syntax.all.*
 import coursierapi.Cache
 import coursierapi.Dependency
 import coursierapi.Module
@@ -20,6 +22,9 @@ import java.util.zip.ZipInputStream
 case class IndexManager(
     symbolIndex: SymbolIndex,
     bytecodeIndexer: BytecodeIndexer,
+    lifecycle: IndexLifecycle,
+    supervisor: Supervisor[IO],
+    notifyProgress: String => IO[Unit] = _ => IO.unit,
     depIndexCache: DepIndexCache = DepIndexCache.default,
 ) {
   private val logger          = LoggerFactory.getLogger(this.getClass)
@@ -29,6 +34,40 @@ case class IndexManager(
 
   def updateOpenFile(uri: SourceUri, symbols: List[IndexedSymbol], refs: List[SymbolReference]): IO[Unit] =
     projectIndex.updateFiles(Map(uri -> (symbols, refs)))
+
+  /** Kick off the initial index population in the background. Flips lifecycle Cold → Bootstrapping immediately,
+    * spawns the indexers under [[supervisor]] so shutdown cancels them cleanly, and flips Bootstrapping → Ready when
+    * the parallel passes finish. Returns once the fiber is registered — callers do not block on indexing.
+    *
+    * The [[notifyProgress]] callback fires once per transition with a human-readable summary so the LSP client can surface
+    * progress to the user (`window/logMessage` in the wiring layer).
+    */
+  def bootstrap(targets: Set[ScalaBuildTargetInformation]): IO[Unit] = {
+    val work = for {
+      start <- IO.monotonic
+      _     <- IO(logger.info(s"Index bootstrap starting (targets=${targets.size})"))
+      _     <- notifyProgress(s"Indexing ${targets.size} targets…")
+      _     <- List(
+        indexJdkSources(),
+        indexDependencies(targets),
+        indexExistingProjectArtifacts(targets),
+      ).parSequence_
+      end       <- IO.monotonic
+      projCount <- symbolIndex.projectSymbolCount
+      depCount  <- symbolIndex.dependencySymbolCount
+      files     <- symbolIndex.fileCount
+      jars      <- symbolIndex.jarCount
+      elapsedMs = (end - start).toMillis
+      summary   =
+        s"Index bootstrap complete in ${elapsedMs}ms (projectSymbols=$projCount, dependencySymbols=$depCount, files=$files, jars=$jars)"
+      _ <- IO(logger.info(summary))
+      _ <- notifyProgress(s"Indexed $files files and $jars jars in ${elapsedMs}ms")
+      _ <- lifecycle.transition(IndexPhase.Ready)
+    } yield ()
+
+    lifecycle.transition(IndexPhase.Bootstrapping) *>
+      supervisor.supervise(work.handleErrorWith(e => IO(logger.error("Index bootstrap failed", e)))).void
+  }
 
   def indexDependencies(targets: Set[ScalaBuildTargetInformation]): IO[Unit] = {
     val projectDirs = targets.flatMap(t => Set(t.classesDir, t.classJarPath))

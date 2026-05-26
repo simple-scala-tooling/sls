@@ -1,5 +1,6 @@
 package org.scala.abusers.sls.index
 
+import cats.effect.std.Supervisor
 import cats.effect.IO
 import org.objectweb.asm.ClassWriter
 import org.objectweb.asm.Opcodes
@@ -14,6 +15,19 @@ import java.util.zip.ZipOutputStream
 object IndexManagerSpec extends SimpleIOSuite {
 
   private val bytecodeIndexer = BytecodeIndexer()
+
+  private def withManager[A](
+      f: (IndexManager, ProjectIndex, DependencyIndex) => IO[A]
+  ): IO[A] =
+    Supervisor[IO].use { sup =>
+      for {
+        pi <- ProjectIndex.empty
+        di <- DependencyIndex.empty
+        lc <- IndexLifecycle.empty
+        mgr = IndexManager(SymbolIndex(pi, di), bytecodeIndexer, lc, sup)
+        a <- f(mgr, pi, di)
+      } yield a
+    }
 
   private def createJar(entries: List[(String, Array[Byte])]): IO[AbsolutePath] = IO.blocking {
     val tmp     = os.temp.dir(prefix = "index-manager-test")
@@ -54,33 +68,27 @@ object IndexManagerSpec extends SimpleIOSuite {
       typeSignature = Some("test.Foo"),
     )
 
-    for {
-      pi <- ProjectIndex.empty
-      di <- DependencyIndex.empty
-      mgr = IndexManager(SymbolIndex(pi, di), bytecodeIndexer)
-      _      <- pi.updateFiles(Map(uri -> (List(sym), Nil)))
-      before <- pi.getSymbol(IndexTestFixtures.tid("test.Foo"))
-      _      <- mgr.onFilesDeleted(Set(uri))
-      after  <- pi.getSymbol(IndexTestFixtures.tid("test.Foo"))
-    } yield expect(before.isDefined) and expect(after.isEmpty)
+    withManager { (mgr, pi, _) =>
+      for {
+        _      <- pi.updateFiles(Map(uri -> (List(sym), Nil)))
+        before <- pi.getSymbol(IndexTestFixtures.tid("test.Foo"))
+        _      <- mgr.onFilesDeleted(Set(uri))
+        after  <- pi.getSymbol(IndexTestFixtures.tid("test.Foo"))
+      } yield expect(before.isDefined) and expect(after.isEmpty)
+    }
   }
 
   test("onFilesDeleted with empty set is a no-op") {
-    for {
-      pi <- ProjectIndex.empty
-      di <- DependencyIndex.empty
-      mgr = IndexManager(SymbolIndex(pi, di), bytecodeIndexer)
-      _ <- mgr.onFilesDeleted(Set.empty)
-    } yield success
+    withManager { (mgr, _, _) =>
+      mgr.onFilesDeleted(Set.empty).as(success)
+    }
   }
 
   test("dependency JAR indexed via bytecode — symbols findable") {
     val cls = javaClass("com/example/Widget")
     for {
       jar <- createJar(List(cls))
-      pi  <- ProjectIndex.empty
       di  <- DependencyIndex.empty
-      mgr = IndexManager(SymbolIndex(pi, di), bytecodeIndexer)
       syms  <- bytecodeIndexer.indexJar(jar)
       _     <- di.addJar(jar.toNioPath.toString, syms)
       found <- di.searchSymbols("widget")
@@ -89,9 +97,7 @@ object IndexManagerSpec extends SimpleIOSuite {
 
   test("corrupt JAR does not crash indexing") {
     for {
-      pi <- ProjectIndex.empty
       di <- DependencyIndex.empty
-      mgr        = IndexManager(SymbolIndex(pi, di), bytecodeIndexer)
       tmp        = os.temp.dir(prefix = "corrupt-jar-test")
       corruptJar = tmp / "corrupt.jar"
       _ <- IO.blocking(os.write(corruptJar, "not a jar"))
@@ -257,32 +263,30 @@ object IndexManagerSpec extends SimpleIOSuite {
       typeSignature = None,
     )
 
-    for {
-      pi <- ProjectIndex.empty
-      di <- DependencyIndex.empty
-      mgr = IndexManager(SymbolIndex(pi, di), bytecodeIndexer)
-      _ <- pi.updateFiles(
-        Map(
-          uri1 -> (List(sym1), Nil),
-          uri2 -> (List(sym2), Nil),
+    withManager { (mgr, pi, _) =>
+      for {
+        _ <- pi.updateFiles(
+          Map(
+            uri1 -> (List(sym1), Nil),
+            uri2 -> (List(sym2), Nil),
+          )
         )
-      )
-      _ <- mgr.onFilesDeleted(Set(uri1, uri2))
-      a <- pi.getSymbol(IndexTestFixtures.tid("test.A"))
-      b <- pi.getSymbol(IndexTestFixtures.tid("test.B"))
-    } yield expect(a.isEmpty) and expect(b.isEmpty)
+        _ <- mgr.onFilesDeleted(Set(uri1, uri2))
+        a <- pi.getSymbol(IndexTestFixtures.tid("test.A"))
+        b <- pi.getSymbol(IndexTestFixtures.tid("test.B"))
+      } yield expect(a.isEmpty) and expect(b.isEmpty)
+    }
   }
 
   test("dep jar with no Maven coords falls back to bytecode indexing") {
     val mainCls = javaClass("com/example/NoSrc")
-    for {
-      jar <- createJar(List(mainCls))
-      pi  <- ProjectIndex.empty
-      di  <- DependencyIndex.empty
-      mgr = IndexManager(SymbolIndex(pi, di), bytecodeIndexer)
-      _     <- mgr.indexJarSafely(jar, Nil)
-      found <- di.getSymbolsByName("NoSrc")
-    } yield expect(found.exists(_.origin.isInstanceOf[SymbolOrigin.DependencyClassfile]))
+    withManager { (mgr, _, di) =>
+      for {
+        jar   <- createJar(List(mainCls))
+        _     <- mgr.indexJarSafely(jar, Nil)
+        found <- di.getSymbolsByName("NoSrc")
+      } yield expect(found.exists(_.origin.isInstanceOf[SymbolOrigin.DependencyClassfile]))
+    }
   }
 
   test("corrupted .tasty entry crashes TastyIndexer — bytecode fallback publishes .class symbols") {
@@ -292,14 +296,13 @@ object IndexManagerSpec extends SimpleIOSuite {
     // fallback indexes the `.class` entry.
     val garbageTasty = ("com/example/Broken.tasty", "not valid TASTy bytes".getBytes("UTF-8"))
     val realClass    = javaClass("com/example/Survivor")
-    for {
-      jar <- createJar(List(garbageTasty, realClass))
-      pi  <- ProjectIndex.empty
-      di  <- DependencyIndex.empty
-      mgr = IndexManager(SymbolIndex(pi, di), bytecodeIndexer)
-      _     <- mgr.indexJarSafely(jar, Nil)
-      found <- di.getSymbolsByName("Survivor")
-    } yield expect(found.exists(_.origin.isInstanceOf[SymbolOrigin.DependencyClassfile]))
+    withManager { (mgr, _, di) =>
+      for {
+        jar   <- createJar(List(garbageTasty, realClass))
+        _     <- mgr.indexJarSafely(jar, Nil)
+        found <- di.getSymbolsByName("Survivor")
+      } yield expect(found.exists(_.origin.isInstanceOf[SymbolOrigin.DependencyClassfile]))
+    }
   }
 
 }
