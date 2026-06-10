@@ -24,7 +24,15 @@ object IndexManagerSpec extends SimpleIOSuite {
         pi <- ProjectIndex.empty
         di <- DependencyIndex.empty
         lc <- IndexLifecycle.empty
-        mgr = IndexManager(SymbolIndex(pi, di), bytecodeIndexer, lc, sup)
+        cacheDir <- IO.blocking(os.temp.dir(prefix = "index-manager-test-cache").toNIO)
+        mgr = IndexManager(
+          SymbolIndex(pi, di),
+          bytecodeIndexer,
+          lc,
+          sup,
+          new DepIndexCache(cacheDir),
+          coursierapi.Cache.create(),
+        )
         a <- f(mgr, pi, di)
       } yield a
     }

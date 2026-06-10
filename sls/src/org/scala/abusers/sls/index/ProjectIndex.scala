@@ -50,14 +50,14 @@ private[index] class ProjectIndex private (state: Ref[IO, ProjectIndex.State]) {
   def updateFiles(files: Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])]): IO[Unit] =
     state.update { s =>
       val totalRefs = files.values.map(_._2.size).sum
-      logger.info(
+      logger.debug(
         s"updateFiles: ${files.size} files, ${files.values.map(_._1.size).sum} symbols, $totalRefs refs. Before: ${s.references.size} ref keys, ${s.core.symbols.size} symbols"
       )
       val result = files.foldLeft(s) { case (state, (uri, (symbols, refs))) =>
         val cleaned = removeFileFromState(state, uri)
         addFileToState(cleaned, uri, symbols, refs)
       }
-      logger.info(s"updateFiles done. After: ${result.references.size} ref keys, ${result.core.symbols.size} symbols")
+      logger.debug(s"updateFiles done. After: ${result.references.size} ref keys, ${result.core.symbols.size} symbols")
       result
     }
 
@@ -65,7 +65,7 @@ private[index] class ProjectIndex private (state: Ref[IO, ProjectIndex.State]) {
 
   def removeFiles(uris: Set[SourceUri]): IO[Unit] =
     state.update { s =>
-      logger.info(
+      logger.debug(
         s"removeFiles called with ${uris.size} URIs, current refs=${s.references.size} keys, symbols=${s.core.symbols.size}"
       )
       uris.foldLeft(s)(removeFileFromState)
@@ -127,7 +127,7 @@ object ProjectIndex {
       newRefs: List[SymbolReference],
   ): State = {
     val refsMap = newRefs.foldLeft(s.references) { (m, ref) =>
-      logger.info(
+      logger.debug(
         s"  addRef: ${ref.symbol.render} -> ${ref.location.uri}:${ref.location.startLine}:${ref.location.startCol} (${ref.referenceKind})"
       )
       m.updatedWith(ref.symbol)(_.fold(Some(List(ref)))(list => Some(ref :: list)))

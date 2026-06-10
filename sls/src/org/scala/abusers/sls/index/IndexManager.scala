@@ -8,6 +8,7 @@ import coursierapi.Cache
 import coursierapi.Dependency
 import coursierapi.Module
 import org.scala.abusers.csp.CompileOutput
+import org.scala.abusers.csp.OutputFormat
 import org.scala.abusers.sls.toSourceUri
 import org.scala.abusers.sls.AbsolutePath
 import org.scala.abusers.sls.CoursierResolver
@@ -24,11 +25,11 @@ case class IndexManager(
     bytecodeIndexer: BytecodeIndexer,
     lifecycle: IndexLifecycle,
     supervisor: Supervisor[IO],
+    depIndexCache: DepIndexCache,
+    coursierCache: Cache,
     notifyProgress: String => IO[Unit] = _ => IO.unit,
-    depIndexCache: DepIndexCache = DepIndexCache.default,
 ) {
   private val logger          = LoggerFactory.getLogger(this.getClass)
-  private val coursierCache   = Cache.create()
   private val projectIndex    = symbolIndex.project
   private val dependencyIndex = symbolIndex.dependency
 
@@ -159,50 +160,32 @@ case class IndexManager(
     val changedProducts   = compileOutput.changedFiles.values.flatten.toSet
     val outputJar         = AbsolutePath(compileOutput.outputJar)
     val indexer           = TastyIndexer(target.displayName)
+    val format            = compileOutput.outputFormat
+
+    val indexCall: IO[Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])]] = format match {
+      case OutputFormat.TASTY   => indexer.indexJar(outputJar, target.classpath)
+      case OutputFormat.BETASTY => indexer.indexBetastyJar(outputJar, target.classpath, changedProducts)
+    }
 
     for {
       _ <- IO(
         logger.info(
-          s"Indexing after compilation for ${target.displayName}, outputJar=$outputJar, changedSources=${changedSourceUris.size}, changedProducts=${changedProducts.size}"
+          s"Indexing after compilation for ${target.displayName}, outputJar=$outputJar, format=$format, changedSources=${changedSourceUris.size}, changedProducts=${changedProducts.size}"
         )
       )
-      results <- indexer
-        .indexJar(outputJar, target.classpath)
-        .handleErrorWith { e =>
-          IO(logger.error(s"Failed to TASTy-index after compilation for ${target.displayName}", e))
-            .as(Map.empty)
-        }
-      _ <-
-        if results.nonEmpty then {
-          val relevant = if changedSourceUris.nonEmpty then results.filter { case (uri, _) =>
-            changedSourceUris.contains(uri)
-          }
-          else results
-          IO(logger.info(s"TASTy index: ${relevant.size} files, ${relevant.values.map(_._1.size).sum} symbols")) *>
-            projectIndex.removeFiles(changedSourceUris) *>
-            projectIndex.updateFiles(relevant)
-        } else
-          // CSP output JAR has .betasty (not .tasty) — try BeTASTy inspector
-          IO(logger.info(s"No TASTy in output JAR, trying BeTASTy inspector for ${target.displayName}")) *>
-            indexer
-              .indexBetastyJar(outputJar, target.classpath, changedProducts)
-              .handleErrorWith { e =>
-                IO(logger.error(s"BeTASTy indexing failed for ${target.displayName}", e))
-                  .as(Map.empty)
-              }
-              .flatMap { betastyResults =>
-                val relevant = if changedSourceUris.nonEmpty then betastyResults.filter { case (uri, _) =>
-                  changedSourceUris.contains(uri)
-                }
-                else betastyResults
-                IO(
-                  logger.info(
-                    s"BeTASTy index: ${relevant.size} files (of ${betastyResults.size}), ${relevant.values.map(_._1.size).sum} symbols, ${relevant.values.map(_._2.size).sum} references. changedSourceUris=$changedSourceUris, betastyResultKeys=${betastyResults.keys}"
-                  )
-                ) *>
-                  projectIndex.removeFiles(changedSourceUris) *>
-                  projectIndex.updateFiles(relevant)
-              }
+      results <- indexCall.handleErrorWith { e =>
+        IO(logger.error(s"$format indexing failed for ${target.displayName}", e))
+          .as(Map.empty[SourceUri, (List[IndexedSymbol], List[SymbolReference])])
+      }
+      relevant = if changedSourceUris.nonEmpty then results.filter { case (uri, _) => changedSourceUris.contains(uri) }
+                 else results
+      _ <- IO(
+        logger.info(
+          s"$format index: ${relevant.size} files (of ${results.size}), ${relevant.values.map(_._1.size).sum} symbols, ${relevant.values.map(_._2.size).sum} references"
+        )
+      )
+      _ <- projectIndex.removeFiles(changedSourceUris)
+      _ <- projectIndex.updateFiles(relevant)
     } yield ()
   }
 

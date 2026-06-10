@@ -94,6 +94,8 @@ structure CompileOutput {
   outputJar: String
   @required
   changedFiles: ChangedFilesMap
+  @required
+  outputFormat: OutputFormat
 }
 
 map ChangedFilesMap {
@@ -103,6 +105,11 @@ map ChangedFilesMap {
 
 list ProductFiles {
   member: String
+}
+
+enum OutputFormat {
+  TASTY
+  BETASTY
 }
 
 structure ScalaVersion {
