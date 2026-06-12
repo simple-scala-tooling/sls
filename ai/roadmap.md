@@ -185,6 +185,18 @@ message) when the index isn't `Ready`.
    also requires the Phase 4 location guard (never edit a stale location).
 4. References polish: strip the debug logging (`allReferenceTargets` dump per request),
    include-declaration flag, dedupe.
+5. **Standard LSP test coverage** (grows alongside the features, written at the TestClient
+   level so it survives the Phase 8 PC-worker split unchanged):
+   - PC-backed features (completion, hover, definition, signature help, inlay hints): a
+     `TestServer` mode with the real `PresentationCompilerProvider` (it's a trait —
+     constructor swap) and a real-Scala-version synthetic target; request verbs
+     (`complete`/`hover`/`definition`) on `TestClient`; assertions via `code"""${m1}…"""`
+     markers. Opt-in fixture mode — the provider downloads the PC via coursier on first run.
+   - Protocol conformance: initialize/capabilities handshake, requests against unopened
+     files (must answer gracefully, not throw — `BspStateManager.get` currently throws),
+     working `$/cancelRequest`, sane responses while the index is `Cold`/`Failed`. The
+     stdio smoke tests from Phase 1 host the framing-level cases. These encode "no client
+     behavior can break the session" — the stability contract itself.
 
 **Done when:** each feature has a green scenario test and a documented degradation mode.
 
