@@ -1,6 +1,7 @@
 package org.scala.abusers.sls.index
 
 import cats.effect.IO
+import cats.syntax.all.*
 import org.scala.abusers.sls.SourceUri
 
 class SymbolIndex(
@@ -92,14 +93,6 @@ class SymbolIndex(
         lines * 10000 + cols
       }
       .getOrElse(Long.MaxValue)
-
-  // cats traverse for List isn't imported, inline it
-  private implicit class ListTraverseOps[A](list: List[A]) {
-    def traverse[B](f: A => IO[B]): IO[List[B]] =
-      list.foldRight(IO.pure(List.empty[B])) { (a, acc) =>
-        f(a).flatMap(b => acc.map(b :: _))
-      }
-  }
 }
 
 object SymbolIndex {

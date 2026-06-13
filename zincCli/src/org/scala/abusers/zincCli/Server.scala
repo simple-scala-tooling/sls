@@ -98,6 +98,12 @@ class ZincCliServer extends csp.CspServer[IO] {
       }
       .orElse(PreviousResult.create(Optional.empty[CompileAnalysis](), Optional.empty[MiniSetup]()))
 
+    // These three must stay in lock-step: best-effort scalac emits ".betasty" entries; we announce BETASTY format
+    // downstream. Touch any of them only by touching all three.
+    val extraScalacOptions = List("-Ybest-effort", "-Ywith-best-effort-tasty")
+    val entrySuffix        = ".betasty"
+    val outputFormat       = csp.OutputFormat.BETASTY
+
     val result = for {
       sources <- sources0
     } yield {
@@ -141,7 +147,7 @@ class ZincCliServer extends csp.CspServer[IO] {
         classesDirectory = outputClassJar.temp,
         earlyJarPath = None,
         // scalacOptions = Nil.toArray, // List("-Ystop-after:pickler", s"-Xearly-tasty-output:${classesDirectory0.resolve("tastyFiles.jar")}").toArray,
-        scalacOptions = List("-Ybest-effort", "-Ywith-best-effort-tasty").toArray,
+        scalacOptions = extraScalacOptions.toArray,
         javacOptions = javacOptions.toArray,
         maxErrors = Int.MaxValue,
         sourcePositionMappers = Array(),
@@ -181,14 +187,14 @@ class ZincCliServer extends csp.CspServer[IO] {
 
           changedSources.map { src =>
             val classNames = analysis.relations.classNames(src)
-            val entries    = classNames.toList.map(_.replace('.', '/') + ".betasty")
+            val entries    = classNames.toList.map(_.replace('.', '/') + entrySuffix)
             src.id -> entries
           }.toMap
         } else Map.empty
       changedFilesMap
     }
 
-    result.map(changedFiles => csp.CompileOutput(outputClassJar.path.toString, changedFiles))
+    result.map(changedFiles => csp.CompileOutput(outputClassJar.path.toString, changedFiles, outputFormat))
   }
 
 }

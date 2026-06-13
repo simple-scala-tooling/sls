@@ -1,6 +1,7 @@
 package org.scala.abusers.sls.index
 
 import cats.effect.IO
+import cats.effect.Resource
 import org.scala.abusers.sls.toSourceUri
 import org.scala.abusers.sls.AbsolutePath
 import org.scala.abusers.sls.SourceUri
@@ -10,6 +11,10 @@ import java.io.OutputStream
 import java.io.PrintStream
 import java.util.zip.ZipFile
 import scala.util.control.NonFatal
+
+private inline def safe[A](inline op: => A): Option[A] =
+  try Some(op)
+  catch { case NonFatal(_) => None }
 
 class TastyIndexer(buildTarget: String) {
   private val logger = LoggerFactory.getLogger(this.getClass)
@@ -205,7 +210,7 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
         val vis     = extractVisibility(sym)
         val parents = extractParents(cd)
         val loc     = symbolLocation(sym, uri)
-        val sig     = tryOpt(sym.fullName)
+        val sig     = safe(sym.fullName)
 
         addSymbol(
           uri,
@@ -250,15 +255,13 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
             location = loc,
             origin = SymbolOrigin.ProjectTasty(buildTarget, uri),
             parents = Nil,
-            typeSignature = tryOpt(sym.fullName),
+            typeSignature = safe(sym.fullName),
           ),
         )
 
-        try
-          sym.allOverriddenSymbols.foreach { overridden =>
-            loc.foreach(l => addReference(uri, SymbolReference(mkSymbolId(overridden), l, ReferenceKind.Override)))
-          }
-        catch { case NonFatal(_) => () }
+        safe(sym.allOverriddenSymbols.foreach { overridden =>
+          loc.foreach(l => addReference(uri, SymbolReference(mkSymbolId(overridden), l, ReferenceKind.Override)))
+        })
       }
     }
 
@@ -288,7 +291,7 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
             location = loc,
             origin = SymbolOrigin.ProjectTasty(buildTarget, uri),
             parents = Nil,
-            typeSignature = tryOpt(sym.fullName),
+            typeSignature = safe(sym.fullName),
           ),
         )
       }
@@ -323,30 +326,29 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
     }
 
     def addReferenceFromTree(tree: Tree, owner: Symbol): Unit =
-      try {
+      safe {
         val sym = tree.symbol
-        if sym.isNoSymbol then return
-        val refId = mkSymbolId(sym)
-        val pos   = tree.pos
-        if pos.start != pos.end then {
-          posSourceUri(pos).foreach { uri =>
-            val loc = Location(uri, pos.startLine, pos.startColumn, pos.endLine, pos.endColumn)
-            addReference(uri, SymbolReference(refId, loc, ReferenceKind.Call))
+        if !sym.isNoSymbol then {
+          val refId = mkSymbolId(sym)
+          val pos   = tree.pos
+          if pos.start != pos.end then {
+            posSourceUri(pos).foreach { uri =>
+              val loc = Location(uri, pos.startLine, pos.startColumn, pos.endLine, pos.endColumn)
+              addReference(uri, SymbolReference(refId, loc, ReferenceKind.Call))
+            }
           }
         }
-      } catch { case NonFatal(_) => () }
+      }
 
     def mkSymbolId(sym: Symbol): SymbolId =
-      try {
+      safe {
         val isType        = isTypeLike(sym)
         val name          = stripDollar(sym.name)
         val (pkg, owners) = collectOwners(sym.maybeOwner)
         SymbolId.fromTasty(pkg, owners, name, isType)
-      } catch {
-        case NonFatal(_) =>
-          try SymbolId.fromTasty(Nil, Nil, stripDollar(sym.name), isType = false)
-          catch { case NonFatal(_) => SymbolId.tpe(Nil, Nil, "<unknown>") }
       }
+        .orElse(safe(SymbolId.fromTasty(Nil, Nil, stripDollar(sym.name), isType = false)))
+        .getOrElse(SymbolId.tpe(Nil, Nil, "<unknown>"))
 
     /** Type vs term decision. Packages are types; objects (Module flag) are terms even though their module-class is
       * structurally a class; everything else falls back to dotty's class/type/val/def classifiers.
@@ -390,30 +392,13 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
       if n.endsWith("$") then n.dropRight(1) else n
 
     def sourceFileUri(sym: Symbol): Option[SourceUri] =
-      try {
-        val pos = sym.pos
-        if pos.isDefined then {
-          val path = pos.get.sourceFile.path
-          if path != null then Some(java.nio.file.Path.of(path).toSourceUri)
-          else None
-        } else None
-      } catch { case NonFatal(_) => None }
+      safe(sym.pos.flatMap(p => Option(p.sourceFile.path)).map(java.nio.file.Path.of(_).toSourceUri)).flatten
 
     def posSourceUri(pos: Position): Option[SourceUri] =
-      try {
-        val path = pos.sourceFile.path
-        if path != null then Some(java.nio.file.Path.of(path).toSourceUri)
-        else None
-      } catch { case NonFatal(_) => None }
+      safe(Option(pos.sourceFile.path).map(java.nio.file.Path.of(_).toSourceUri)).flatten
 
     def symbolLocation(sym: Symbol, uri: SourceUri): Option[Location] =
-      try {
-        val pos = sym.pos
-        if pos.isDefined then {
-          val p = pos.get
-          Some(Location(uri, p.startLine, p.startColumn, p.endLine, p.endColumn))
-        } else None
-      } catch { case NonFatal(_) => None }
+      safe(sym.pos.map(p => Location(uri, p.startLine, p.startColumn, p.endLine, p.endColumn))).flatten
 
     def classKind(sym: Symbol): SymbolKind = {
       val flags = sym.flags
@@ -432,9 +417,9 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
     }
 
     def extractParents(cd: ClassDef): List[SymbolId] =
-      try
+      safe {
         cd.parents.flatMap { parent =>
-          try {
+          safe {
             val tpe = parent match {
               case t: Term     => t.tpe
               case t: TypeTree => t.tpe
@@ -442,21 +427,17 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
             val typeSym = tpe.typeSymbol
             if typeSym.fullName == "java.lang.Object" || typeSym.fullName == "scala.Any" then None
             else Some(mkSymbolId(typeSym))
-          } catch { case NonFatal(_) => None }
+          }.flatten
         }
-      catch { case NonFatal(_) => Nil }
+      }.getOrElse(Nil)
 
     def shouldSkipSymbol(sym: Symbol): Boolean =
-      try {
+      safe {
         val flags = sym.flags
         val name  = sym.name
         flags.is(Flags.Synthetic) || flags.is(Flags.Artifact) ||
         name.contains("$anon") || name.contains("$evidence") || name.startsWith("$")
-      } catch { case NonFatal(_) => true }
-
-    def tryOpt[A](a: => A): Option[A] =
-      try Some(a)
-      catch { case NonFatal(_) => None }
+      }.getOrElse(true)
   }
 
   private def addSymbol(uri: SourceUri, sym: IndexedSymbol): Unit =
@@ -472,20 +453,25 @@ object TastyIndexer {
   private val suppressedThreads: ThreadLocal[Boolean] = ThreadLocal.withInitial(() => false)
 
   /** Install a thread-aware PrintStream as System.out that suppresses output from threads running the TASTy inspector,
-    * while letting all other threads (especially the LSP JSON-RPC output) write normally. Call once at server startup.
+    * while letting all other threads (especially the LSP JSON-RPC output) write normally. The original System.out is
+    * restored on Resource finalization so shutdown leaves the JVM in the state it was found in.
     */
-  def installStdoutGuard(): Unit = {
-    val real    = System.out
-    val guarded = new PrintStream(
-      new OutputStream {
-        override def write(b: Int): Unit =
-          if !suppressedThreads.get() then real.write(b)
-        override def write(b: Array[Byte], off: Int, len: Int): Unit =
-          if !suppressedThreads.get() then real.write(b, off, len)
-        override def flush(): Unit = real.flush()
-      },
-      true,
-    )
-    System.setOut(guarded)
-  }
+  def stdoutGuard: Resource[IO, Unit] =
+    Resource
+      .make(IO {
+        val real    = System.out
+        val guarded = new PrintStream(
+          new OutputStream {
+            override def write(b: Int): Unit =
+              if !suppressedThreads.get() then real.write(b)
+            override def write(b: Array[Byte], off: Int, len: Int): Unit =
+              if !suppressedThreads.get() then real.write(b, off, len)
+            override def flush(): Unit = real.flush()
+          },
+          true,
+        )
+        System.setOut(guarded)
+        real
+      })(real => IO(System.setOut(real)))
+      .map(_ => ())
 }

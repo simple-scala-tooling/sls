@@ -10,6 +10,8 @@ object IndexedSymbolCodecs {
   given JsonValueCodec[SourceUri] = new JsonValueCodec[SourceUri] {
     def decodeValue(in: JsonReader, default: SourceUri): SourceUri = SourceUri(in.readString(null))
     def encodeValue(x: SourceUri, out: JsonWriter): Unit           = out.writeVal(x.toLspUri)
+    /** jsoniter requires a sentinel for nullable contexts. SourceUri is never nullable on real read paths
+      * (we always wrap a non-null String), so this cast is unreachable in practice — it's API ceremony. */
     def nullValue: SourceUri                                       = null.asInstanceOf[SourceUri]
   }
 
