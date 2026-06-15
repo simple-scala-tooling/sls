@@ -17,3 +17,8 @@ out
 .direnv
 .claude/settings.local.json
 .mcp.json
+
+# local tooling / caches
+.cellar
+.sls
+langoustine-tracer
