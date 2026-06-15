@@ -19,11 +19,11 @@ import org.typelevel.otel4s.trace.Tracer
   *   - BSP → [[BspStubs.forTarget]] (answers inverse-sources for one synthetic Scala target; everything else raises)
   *   - CSP → [[FakeCspServer.dotcBacked]] (real in-process dotc producing real TASTy jars, no zinc)
   *   - queue → [[TestComputationQueue]] (passthrough; the `./.sls/` classpath swap is skipped)
-  *   - index lifecycle is set straight to `Ready`: `bootstrap` would index the JDK and dependency jars, which is
-  *     out of scope until the harness grows a knob for it
+  *   - index lifecycle is set straight to `Ready`: `bootstrap` would index the JDK and dependency jars, which is out of
+  *     scope until the harness grows a knob for it
   *
-  * The synthetic target reports Scala 3.0.0, which keeps `ServerImpl`'s PC-diagnostics path (gated on > 3.7.2)
-  * disabled — no presentation compiler is downloaded or loaded.
+  * The synthetic target reports Scala 3.0.0, which keeps `ServerImpl`'s PC-diagnostics path (gated on > 3.7.2) disabled
+  * — no presentation compiler is downloaded or loaded.
   */
 object TestServer {
 
@@ -36,10 +36,13 @@ object TestServer {
       lifecycle: index.IndexLifecycle,
   )
 
-  def resource(ws: TestWorkspace)(using Tracer[IO], Meter[IO]): Resource[IO, Handle] =
+  def resource(ws: TestWorkspace, cspServer: Option[CspServer[IO]] = None)(using
+      Tracer[IO],
+      Meter[IO],
+  ): Resource[IO, Handle] =
     for {
-      client            <- TestClient.create.toResource
-      steward           <- ResourceSupervisor[IO]
+      client  <- TestClient.create.toResource
+      steward <- ResourceSupervisor[IO]
       // The synthetic target's Scala version keeps every PC path off; a real provider would also drag in
       // scache, whose background machinery misbehaves under mill's test-runner classloader.
       pcProvider = new PresentationCompilerProvider {
@@ -53,18 +56,17 @@ object TestServer {
       diagnosticManager <- DiagnosticManager.instance.toResource
       cancelTokens      <- IOCancelTokens.instance
       indexSupervisor   <- Supervisor[IO]
+      compileScheduler  <- CompileScheduler.create(indexSupervisor).toResource
       symbolIndex       <- index.SymbolIndex.empty.toResource
       indexLifecycle    <- index.IndexLifecycle.empty.toResource
-      cspWorkDir        <- Resource.make(IO.blocking(os.temp.dir(prefix = "sls-test-csp")))(d =>
-        IO.blocking(os.remove.all(d))
-      )
-      cacheDir          <- Resource.make(IO.blocking(os.temp.dir(prefix = "sls-test-dep-cache")))(d =>
+      cspWorkDir <- Resource.make(IO.blocking(os.temp.dir(prefix = "sls-test-csp")))(d => IO.blocking(os.remove.all(d)))
+      cacheDir   <- Resource.make(IO.blocking(os.temp.dir(prefix = "sls-test-dep-cache")))(d =>
         IO.blocking(os.remove.all(d))
       )
 
       targetInfo = syntheticTarget(ws)
       bspStub    = BspStubs.forTarget(targetInfo.buildTarget.id)
-      fakeCsp    = FakeCspServer.dotcBacked(cspWorkDir)
+      fakeCsp    = cspServer.getOrElse(FakeCspServer.dotcBacked(cspWorkDir))
 
       bspDeferred      <- Deferred[IO, BuildServer].toResource
       cspDeferred      <- Deferred[IO, CspServer[IO]].toResource
@@ -97,7 +99,7 @@ object TestServer {
         indexManager,
         symbolIndex,
         indexLifecycle,
-        indexSupervisor,
+        compileScheduler,
       )
       _ <- client.completeServer(server).toResource
     } yield Handle(client, server, ws, symbolIndex, indexManager, indexLifecycle)
