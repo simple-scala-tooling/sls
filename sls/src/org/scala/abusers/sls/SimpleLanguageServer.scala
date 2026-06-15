@@ -87,6 +87,7 @@ object SimpleScalaServer extends ProfilingIOApp {
       symbolIndex       <- index.SymbolIndex.empty.toResource
       indexLifecycle    <- index.IndexLifecycle.empty.toResource
       indexSupervisor   <- Supervisor[IO]
+      compileScheduler  <- CompileScheduler.create(indexSupervisor).toResource
       bytecodeIndexer = index.BytecodeIndexer()
       depIndexCache   = index.DepIndexCache.default
       coursierCache   = coursierapi.Cache.create()
@@ -114,6 +115,6 @@ object SimpleScalaServer extends ProfilingIOApp {
       indexManager,
       symbolIndex,
       indexLifecycle,
-      indexSupervisor,
+      compileScheduler,
     )
 }

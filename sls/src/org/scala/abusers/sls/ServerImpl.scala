@@ -4,7 +4,6 @@ package sls
 import bsp.InitializeBuildParams
 import cats.effect.kernel.Deferred
 import cats.effect.kernel.Resource
-import cats.effect.std.Supervisor
 import cats.effect.IO
 import cats.syntax.all.*
 import fs2.io.file.Files
@@ -53,7 +52,7 @@ class ServerImpl(
     indexManager: index.IndexManager,
     symbolIndex: index.SymbolIndex,
     indexLifecycle: index.IndexLifecycle,
-    indexSupervisor: Supervisor[IO],
+    compileScheduler: CompileScheduler,
 )(using Tracer[IO], Meter[IO])
     extends SlsLanguageServer[IO] {
 
@@ -280,21 +279,21 @@ class ServerImpl(
     for {
       _    <- textDocumentSyncManager.didSave(params)
       info <- bspStateManager.get(uri)
-      _    <- indexSupervisor
-        .supervise(
-          bspStateManager
-            .compileWithCSP(uri)
-            .flatMap { res =>
-              updateOutputClasspath(info, AbsolutePath(res.outputJar)) *>
-                indexManager
-                  .onCompilationComplete(info, res)
-                  .handleError(e =>
-                    lspClient.logMessage(s"Failed to update index after compilation: ${e.getMessage()}")
-                  )
-            }
-            .timeout(60.seconds)
-        )
-        .void
+      // Conflate rapid saves of the same target: the in-flight compile finishes, only the newest pending save
+      // survives, intermediate ones are dropped. Keyed by scopeId — same as compileWithCSP / the zinc-cli lock.
+      _ <- compileScheduler.schedule(info.buildTarget.displayName.getOrElse("default")) {
+        bspStateManager
+          .compileWithCSP(uri)
+          .flatMap { res =>
+            updateOutputClasspath(info, AbsolutePath(res.outputJar)) *>
+              indexManager
+                .onCompilationComplete(info, res)
+                .handleErrorWith(e =>
+                  lspClient.logMessage(s"Failed to update index after compilation: ${e.getMessage()}")
+                )
+          }
+          .timeout(60.seconds)
+      }
     } yield ()
   }
 

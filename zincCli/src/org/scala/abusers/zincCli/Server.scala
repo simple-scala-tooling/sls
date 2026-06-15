@@ -2,6 +2,7 @@ package org.scala.abusers
 package zincCli
 
 import cats.effect.*
+import cats.effect.std.Mutex
 import sbt.internal.inc.*
 import sbt.internal.inc.javac.JavaCompiler
 import sbt.internal.inc.javac.JavaTools
@@ -28,7 +29,27 @@ case class ZincEntryLookup(analysis: Optional[CompileAnalysis]) extends PerClass
   override def analysis(classpathEntry: VirtualFile): ju.Optional[CompileAnalysis] = analysis
 }
 
-class ZincCliServer extends csp.CspServer[IO] {
+class ZincCliServer(compileLocks: Ref[IO, Map[String, Mutex[IO]]]) extends csp.CspServer[IO] {
+
+  // TODO(workaround): This per-scope lock just serializes compiles of the same target so they stop corrupting each
+  // other's analysis store / output jar (`${scopeId}-analysis` / `${scopeId}-classes`, both keyed by scopeId). It is
+  // NOT a proper solution: it never cancels a now-stale in-flight compile and never evicts dead keys from
+  // `compileLocks`. The real fix is a per-target compile scheduler (cancel-previous or conflate). Rewrite once that
+  // lands.
+
+  /** One [[Mutex]] per scopeId. Compiles of the same target share an analysis store and output jar (both keyed by
+    * scopeId), so they must run serially or they corrupt each other; distinct targets use distinct jars and stay
+    * parallel.
+    */
+  private def lockFor(scopeId: String): IO[Mutex[IO]] =
+    Mutex[IO].flatMap { fresh =>
+      compileLocks.modify { locks =>
+        locks.get(scopeId) match {
+          case Some(existing) => (locks, existing)
+          case None           => (locks.updated(scopeId, fresh), fresh)
+        }
+      }
+    }
 
   def findFiles(sourcePath: Seq[Path]): IO[Seq[Path]] =
     IO.parSequence {
@@ -62,139 +83,145 @@ class ZincCliServer extends csp.CspServer[IO] {
       scalacOptions: List[String],
       javacOptions: List[String],
       scalaVersion: csp.ScalaVersion,
-  ): IO[csp.CompileOutput] = {
+  ): IO[csp.CompileOutput] =
+    lockFor(scopeId).flatMap(_.lock.surround(IO.defer {
 
-    val sources0 = findFiles(sourcePath.map(Path.of(_)))
-      .map(
-        _.map(p => VirtualSourceFile(p, HashedContent.of(p)))
-      ) // TODO: THIS WILL REHASH ALL SOURCES ON EVERY COMPILATION, LETS CACHE IT
+      val sources0 = findFiles(sourcePath.map(Path.of(_)))
+        .map(
+          _.map(p => VirtualSourceFile(p, HashedContent.of(p)))
+        ) // TODO: THIS WILL REHASH ALL SOURCES ON EVERY COMPILATION, LETS CACHE IT
 
-    // FIXME: I'm bad
-    val outputClassDir = outputDir.resolve("classes")
-    if !Files.exists(outputClassDir) then Files.createDirectories(outputClassDir)
+      // FIXME: I'm bad
+      val outputClassDir = outputDir.resolve("classes")
+      if !Files.exists(outputClassDir) then Files.createDirectories(outputClassDir)
 
-    val classpath0: List[PlainVirtualFile] = classpath.map(Path.of(_)).map(PlainVirtualFile.apply(_))
+      val classpath0: List[PlainVirtualFile] = classpath.map(Path.of(_)).map(PlainVirtualFile.apply(_))
 
-    val compilers0 =
-      incrementalCompiler.compilers(javaCompiler, ScalaInstanceProvider.getScalaInstance(scalaVersion.version))
+      val compilers0 =
+        incrementalCompiler.compilers(javaCompiler, ScalaInstanceProvider.getScalaInstance(scalaVersion.version))
 
-    val outputClassJar = OutputJarWithDirTemp(
-      outputDir.resolve("classes"),
-      outputDir.resolve("temp"),
-      s"${scopeId}-classes",
-    ) // + fingerprint
+      val outputClassJar = OutputJarWithDirTemp(
+        outputDir.resolve("classes"),
+        outputDir.resolve("temp"),
+        s"${scopeId}-classes",
+      ) // + fingerprint
 
-    val analysisJar =
-      OutputJar(outputDir.resolve("analysis"), outputDir.resolve("temp"), s"${scopeId}-analysis") // + fingerprint
-    val analysisStore = new ZincCliAnalysisStore(analysisJar)
+      val analysisJar =
+        OutputJar(outputDir.resolve("analysis"), outputDir.resolve("temp"), s"${scopeId}-analysis") // + fingerprint
+      val analysisStore = new ZincCliAnalysisStore(analysisJar)
 
-    // val signatureAnalysisJar = OutputJar(outputDir, s"${scopeId}-signature-analysis")
-    // val signatureAnalysisStore = new ZincCliAnalysisStore(signatureAnalysisJar)
+      // val signatureAnalysisJar = OutputJar(outputDir, s"${scopeId}-signature-analysis")
+      // val signatureAnalysisStore = new ZincCliAnalysisStore(signatureAnalysisJar)
 
-    val previousResult = analysisStore
-      .get()
-      .map { analysisResult =>
-        PreviousResult.create(analysisResult.getAnalysis(), analysisResult.getMiniSetup())
-      }
-      .orElse(PreviousResult.create(Optional.empty[CompileAnalysis](), Optional.empty[MiniSetup]()))
+      val previousResult = analysisStore
+        .get()
+        .map { analysisResult =>
+          PreviousResult.create(analysisResult.getAnalysis(), analysisResult.getMiniSetup())
+        }
+        .orElse(PreviousResult.create(Optional.empty[CompileAnalysis](), Optional.empty[MiniSetup]()))
 
-    // These three must stay in lock-step: best-effort scalac emits ".betasty" entries; we announce BETASTY format
-    // downstream. Touch any of them only by touching all three.
-    val extraScalacOptions = List("-Ybest-effort", "-Ywith-best-effort-tasty")
-    val entrySuffix        = ".betasty"
-    val outputFormat       = csp.OutputFormat.BETASTY
+      // These three must stay in lock-step: best-effort scalac emits ".betasty" entries; we announce BETASTY format
+      // downstream. Touch any of them only by touching all three.
+      val extraScalacOptions = List("-Ybest-effort", "-Ywith-best-effort-tasty")
+      val entrySuffix        = ".betasty"
+      val outputFormat       = csp.OutputFormat.BETASTY
 
-    val result = for {
-      sources <- sources0
-    } yield {
-      System.err.println(s"sources: $sources")
-      System.err.println(s"classpath: $classpath0")
+      val result = for {
+        sources <- sources0
+      } yield {
+        System.err.println(s"sources: $sources")
+        System.err.println(s"classpath: $classpath0")
 
-      val fullClasspathMapped = classpath0.groupBy(_.toPath).map { (k, v) =>
-        k -> v.head
-      }
+        val fullClasspathMapped = classpath0.groupBy(_.toPath).map { (k, v) =>
+          k -> v.head
+        }
 
-      val fileConverter = new ZincFileConverter(sources.map(s => s -> s).toMap, fullClasspathMapped)
+        val fileConverter = new ZincFileConverter(sources.map(s => s -> s).toMap, fullClasspathMapped)
 
-      val incOptions = IncOptions
-        .create()
-        .withEnabled(true)
-        .withPipelining(false)
-        .withStoreApis(true)
-        .withAllowMachinePath(false)
-        .withUseCustomizedFileManager(true)
+        val incOptions = IncOptions
+          .create()
+          .withEnabled(true)
+          .withPipelining(false)
+          .withStoreApis(true)
+          .withAllowMachinePath(false)
+          .withUseCustomizedFileManager(true)
 
-      val incrementalSetup = incrementalCompiler.setup(
-        lookup = ZincEntryLookup(analysisStore.get().map(_.getAnalysis())),
-        skip = false,
-        cacheFile = analysisJar.path,
-        cache = CompilerCache.fresh,
-        incOptions = incOptions,
-        reporter = ZincCliReporter(),
-        progress = None,
-        earlyAnalysisStore = None,
-        extra = Array(),
-      )
+        val incrementalSetup = incrementalCompiler.setup(
+          lookup = ZincEntryLookup(analysisStore.get().map(_.getAnalysis())),
+          skip = false,
+          cacheFile = analysisJar.path,
+          cache = CompilerCache.fresh,
+          incOptions = incOptions,
+          reporter = ZincCliReporter(),
+          progress = None,
+          earlyAnalysisStore = None,
+          extra = Array(),
+        )
 
-      val tempClassDir = outputDir.resolve("temp-class-dir")
-      if !Files.exists(tempClassDir) then Files.createDirectories(tempClassDir)
+        val tempClassDir = outputDir.resolve("temp-class-dir")
+        if !Files.exists(tempClassDir) then Files.createDirectories(tempClassDir)
 
-      // val maybeSignatureAnalysisJar = if signatureAnalysisJar.path.toFile.exists() then Some(signatureAnalysisJar.path) else None
+        // val maybeSignatureAnalysisJar = if signatureAnalysisJar.path.toFile.exists() then Some(signatureAnalysisJar.path) else None
 
-      val inputs = incrementalCompiler.inputs(
-        classpath = classpath0.toArray,
-        sources = sources.toArray,
-        classesDirectory = outputClassJar.temp,
-        earlyJarPath = None,
-        // scalacOptions = Nil.toArray, // List("-Ystop-after:pickler", s"-Xearly-tasty-output:${classesDirectory0.resolve("tastyFiles.jar")}").toArray,
-        scalacOptions = extraScalacOptions.toArray,
-        javacOptions = javacOptions.toArray,
-        maxErrors = Int.MaxValue,
-        sourcePositionMappers = Array(),
-        order = CompileOrder.Mixed,
-        compilers = compilers0,
-        setup = incrementalSetup,
-        pr = previousResult,
-        temporaryClassesDirectory = Optional.of(tempClassDir),
-        converter = fileConverter,
-        stampReader = ZincCliStamper(),
-      )
+        val inputs = incrementalCompiler.inputs(
+          classpath = classpath0.toArray,
+          sources = sources.toArray,
+          classesDirectory = outputClassJar.temp,
+          earlyJarPath = None,
+          // scalacOptions = Nil.toArray, // List("-Ystop-after:pickler", s"-Xearly-tasty-output:${classesDirectory0.resolve("tastyFiles.jar")}").toArray,
+          scalacOptions = extraScalacOptions.toArray,
+          javacOptions = javacOptions.toArray,
+          maxErrors = Int.MaxValue,
+          sourcePositionMappers = Array(),
+          order = CompileOrder.Mixed,
+          compilers = compilers0,
+          setup = incrementalSetup,
+          pr = previousResult,
+          temporaryClassesDirectory = Optional.of(tempClassDir),
+          converter = fileConverter,
+          stampReader = ZincCliStamper(),
+        )
 
-      System.err.println(inputs)
+        System.err.println(inputs)
 
-      val compilationResult = incrementalCompiler.compile(inputs, ZincCliLogger())
-      ZincCliLogger().info(() => compilationResult.toString())
-      val changedFilesMap: Map[String, List[String]] =
-        if compilationResult.hasModified then {
-          val previousStamps: Map[xsbti.VirtualFileRef, xsbti.compile.analysis.Stamp] = {
-            val prev = analysisStore.get()
-            if prev.isPresent then prev.get().getAnalysis().asInstanceOf[Analysis].stamps.sources
-            else Map.empty
-          }
-
-          val analysisContents = AnalysisContents.create(compilationResult.analysis(), compilationResult.setup())
-          analysisStore.set(analysisContents)
-          outputClassJar.cleanAndMoveToFinalDest
-          val analysis      = compilationResult.analysis().asInstanceOf[Analysis]
-          val currentStamps = analysis.stamps.sources
-
-          val changedSources = currentStamps.filter { case (src, stamp) =>
-            previousStamps.get(src) match {
-              case Some(prevStamp) => prevStamp != stamp
-              case None            => true // new source
+        val compilationResult = incrementalCompiler.compile(inputs, ZincCliLogger())
+        ZincCliLogger().info(() => compilationResult.toString())
+        val changedFilesMap: Map[String, List[String]] =
+          if compilationResult.hasModified then {
+            val previousStamps: Map[xsbti.VirtualFileRef, xsbti.compile.analysis.Stamp] = {
+              val prev = analysisStore.get()
+              if prev.isPresent then prev.get().getAnalysis().asInstanceOf[Analysis].stamps.sources
+              else Map.empty
             }
-          }.keySet
 
-          changedSources.map { src =>
-            val classNames = analysis.relations.classNames(src)
-            val entries    = classNames.toList.map(_.replace('.', '/') + entrySuffix)
-            src.id -> entries
-          }.toMap
-        } else Map.empty
-      changedFilesMap
-    }
+            val analysisContents = AnalysisContents.create(compilationResult.analysis(), compilationResult.setup())
+            analysisStore.set(analysisContents)
+            outputClassJar.cleanAndMoveToFinalDest
+            val analysis      = compilationResult.analysis().asInstanceOf[Analysis]
+            val currentStamps = analysis.stamps.sources
 
-    result.map(changedFiles => csp.CompileOutput(outputClassJar.path.toString, changedFiles, outputFormat))
-  }
+            val changedSources = currentStamps.filter { case (src, stamp) =>
+              previousStamps.get(src) match {
+                case Some(prevStamp) => prevStamp != stamp
+                case None            => true // new source
+              }
+            }.keySet
 
+            changedSources.map { src =>
+              val classNames = analysis.relations.classNames(src)
+              val entries    = classNames.toList.map(_.replace('.', '/') + entrySuffix)
+              src.id -> entries
+            }.toMap
+          } else Map.empty
+        changedFilesMap
+      }
+
+      result.map(changedFiles => csp.CompileOutput(outputClassJar.path.toString, changedFiles, outputFormat))
+    }))
+
+}
+
+object ZincCliServer {
+  def create: IO[ZincCliServer] =
+    Ref.of[IO, Map[String, Mutex[IO]]](Map.empty).map(new ZincCliServer(_))
 }

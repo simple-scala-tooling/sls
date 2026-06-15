@@ -14,7 +14,7 @@ object ZincCli extends IOApp {
   override def run(args: List[String]): IO[ExitCode] = {
     val app = for {
       fs2Channel           <- FS2Channel.resource[IO](cancelTemplate = None)
-      server               <- IO(ZincCliServer()).toResource
+      server               <- ZincCliServer.create.toResource
       serverEndpoints      <- ServerEndpoints(server).liftTo[IO].toResource
       channelWithEndpoints <- fs2Channel.withEndpoints(serverEndpoints)
       _                    <- fs2.Stream
