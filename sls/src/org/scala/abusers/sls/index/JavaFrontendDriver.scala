@@ -3,6 +3,7 @@ package org.scala.abusers.sls.index
 import dotty.tools.dotc.core.Contexts.Context
 import dotty.tools.dotc.core.Phases.Phase
 import dotty.tools.dotc.parsing.Parser
+import dotty.tools.dotc.reporting.StoreReporter
 import dotty.tools.dotc.typer.TyperPhase
 import dotty.tools.dotc.util.ClasspathFromClassloader
 import dotty.tools.dotc.util.SourceFile
@@ -70,14 +71,19 @@ object JavaFrontendDriver {
         setup(args, initCtx) match {
           case None           => true
           case Some((_, ctx)) =>
-            given Context = ctx
+            // Swap in a StoreReporter so dotc diagnostics from outline-typing dependency/JDK Java sources (unresolved
+            // annotations like org.jspecify, JDK src.zip quirks, etc.) are buffered instead of printed. The default
+            // ConsoleReporter echoes to System.out — which here is the LSP JSON-RPC pipe, so its output corrupts the
+            // framing and crashes the client — and to System.err, which clutters the client log. CapturePhase still
+            // runs and harvests symbols regardless of these errors.
+            given Context = ctx.fresh.setReporter(new StoreReporter(null, fromTyperState = false))
             try {
               val run = newCompiler.newRun
               run.compileSources(srcs)
             } catch {
               case _: InterruptedException => ()
             }
-            !ctx.reporter.hasErrors
+            !summon[Context].reporter.hasErrors
         }
     }
 

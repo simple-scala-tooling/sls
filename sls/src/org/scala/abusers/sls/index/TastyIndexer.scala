@@ -2,10 +2,14 @@ package org.scala.abusers.sls.index
 
 import cats.effect.IO
 import cats.effect.Resource
+import cats.syntax.all.*
 import org.scala.abusers.sls.toSourceUri
 import org.scala.abusers.sls.AbsolutePath
 import org.scala.abusers.sls.SourceUri
 import org.slf4j.LoggerFactory
+import org.typelevel.otel4s.trace.StatusCode
+import org.typelevel.otel4s.trace.Tracer
+import org.typelevel.otel4s.Attribute
 
 import java.io.OutputStream
 import java.io.PrintStream
@@ -16,19 +20,42 @@ private inline def safe[A](inline op: => A): Option[A] =
   try Some(op)
   catch { case NonFatal(_) => None }
 
-class TastyIndexer(buildTarget: String) {
+class TastyIndexer(buildTarget: String)(using Tracer[IO]) {
   private val logger = LoggerFactory.getLogger(this.getClass)
+
+  type Indexed = Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])]
+
+  /** Record the diagnostics from a TASTy read onto the current span (the per-library `index.jar` span when called from
+    * the index bootstrap): error/warning counts, the first few messages as span events, and an Error status when any
+    * error was seen — so a jar that indexed only *partially* (e.g. classpath mismatch) stands out instead of looking
+    * like a clean success. Also logged, so the signal survives even with no trace backend attached.
+    */
+  private def attachDiagnostics(diags: List[IndexDiagnostic]): IO[Unit] =
+    IO.whenA(diags.nonEmpty) {
+      val errors   = diags.count(_.isError)
+      val warnings = diags.size - errors
+      IO(logger.warn(s"TASTy read for $buildTarget produced $errors error(s), $warnings warning(s)")) *>
+        Tracer[IO].currentSpanOrNoop.flatMap { span =>
+          span.addAttribute(Attribute("index.errors", errors.toLong)) *>
+            span.addAttribute(Attribute("index.warnings", warnings.toLong)) *>
+            IO.whenA(errors > 0)(span.setStatus(StatusCode.Error, s"indexed with $errors error(s)")) *>
+            diags.take(TastyIndexer.maxReportedDiagnostics).traverse_ { d =>
+              span.addEvent(if d.isError then "index.error" else "index.warning", Attribute("message", d.message))
+            }
+        }
+    }
 
   def indexFiles(
       tastyFiles: List[AbsolutePath],
       classpath: List[AbsolutePath],
-  ): IO[Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])]] =
+  ): IO[Indexed] =
     IO.blocking(runInspector(tastyFiles.map(_.toNioPath.toString), Nil, classpath.map(_.toNioPath.toString)))
+      .flatMap { case (result, diags) => attachDiagnostics(diags).as(result) }
 
   def indexDirectory(
       classesDir: AbsolutePath,
       classpath: List[AbsolutePath],
-  ): IO[Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])]] =
+  ): IO[Indexed] =
     IO.blocking {
       val tastyFiles = java.nio.file.Files
         .walk(classesDir.toNioPath)
@@ -37,28 +64,29 @@ class TastyIndexer(buildTarget: String) {
         .toList
         .map(_.asInstanceOf[java.nio.file.Path].toString)
       runInspector(tastyFiles, Nil, classpath.map(_.toNioPath.toString))
-    }
+    }.flatMap { case (result, diags) => attachDiagnostics(diags).as(result) }
 
   def indexJar(
       jarPath: AbsolutePath,
       classpath: List[AbsolutePath],
-  ): IO[Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])]] =
+  ): IO[Indexed] =
     IO.blocking(runInspector(Nil, List(jarPath.toNioPath.toString), classpath.map(_.toNioPath.toString)))
+      .flatMap { case (result, diags) => attachDiagnostics(diags).as(result) }
 
   def indexBetastyJar(
       jarPath: AbsolutePath,
       classpath: List[AbsolutePath],
       onlyEntries: Set[String] = Set.empty,
-  ): IO[Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])]] =
+  ): IO[Indexed] =
     IO.blocking {
       val tempDir = java.nio.file.Files.createTempDirectory("betasty-extract")
       try {
         val betastyFiles = extractBetastyFiles(jarPath, tempDir, onlyEntries)
-        if betastyFiles.isEmpty then Map.empty
+        if betastyFiles.isEmpty then (Map.empty, Nil)
         else runBetastyInspector(betastyFiles.map(_.toString), Nil, classpath.map(_.toNioPath.toString))
       } finally
         AbsolutePath(tempDir).deleteRecursively
-    }
+    }.flatMap { case (result, diags) => attachDiagnostics(diags).as(result) }
 
   /** Run the TASTy inspector. Re-throws any Throwable (including compiler Errors like AssertionError, LinkageError)
     * wrapped in a RuntimeException so cats-effect's IO.handleErrorWith can fire the bytecode fallback. Stdout is
@@ -68,18 +96,18 @@ class TastyIndexer(buildTarget: String) {
       tastyFiles: List[String],
       jars: List[String],
       classpath: List[String],
-  ): Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])] = {
+  ): (Indexed, List[IndexDiagnostic]) = {
     val collector = new SymbolCollector(buildTarget)
     TastyIndexer.suppressedThreads.set(true)
-    try
-      TastyInspectorDriver.inspectTastyFiles(tastyFiles, jars, classpath)(collector)
-    catch {
-      case t: Throwable =>
-        val target = if jars.nonEmpty then jars.mkString(", ") else tastyFiles.take(3).mkString(", ")
-        throw new RuntimeException(s"TASTy inspector crash for $target", t)
-    } finally
-      TastyIndexer.suppressedThreads.set(false)
-    collector.result
+    val diags =
+      try TastyInspectorDriver.inspectTastyFiles(tastyFiles, jars, classpath)(collector)
+      catch {
+        case t: Throwable =>
+          val target = if jars.nonEmpty then jars.mkString(", ") else tastyFiles.take(3).mkString(", ")
+          throw new RuntimeException(s"TASTy inspector crash for $target", t)
+      } finally
+        TastyIndexer.suppressedThreads.set(false)
+    (collector.result, diags)
   }
 
   private def extractBetastyFiles(
@@ -111,25 +139,25 @@ class TastyIndexer(buildTarget: String) {
       betastyFiles: List[String],
       jars: List[String],
       classpath: List[String],
-  ): Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])] = {
+  ): (Indexed, List[IndexDiagnostic]) = {
     logger.info(
       s"runBetastyInspector: ${betastyFiles.size} betasty files, ${jars.size} jars, ${classpath.size} classpath entries"
     )
     betastyFiles.foreach(f => logger.debug(s"  betasty file: $f"))
     val collector = new SymbolCollector(buildTarget)
     TastyIndexer.suppressedThreads.set(true)
-    try {
-      val success = TastyInspectorDriver.inspectBetastyFiles(betastyFiles, jars, classpath)(collector)
-      logger.info(s"TastyInspectorDriver.inspectBetastyFiles returned success=$success")
-    } catch {
-      case t: Throwable =>
-        val target = if jars.nonEmpty then jars.mkString(", ") else betastyFiles.take(3).mkString(", ")
-        logger.error(s"BeTASTy inspector crash for $target", t)
-    } finally
-      TastyIndexer.suppressedThreads.set(false)
+    val diags =
+      try TastyInspectorDriver.inspectBetastyFiles(betastyFiles, jars, classpath)(collector)
+      catch {
+        case t: Throwable =>
+          val target = if jars.nonEmpty then jars.mkString(", ") else betastyFiles.take(3).mkString(", ")
+          logger.error(s"BeTASTy inspector crash for $target", t)
+          Nil
+      } finally
+        TastyIndexer.suppressedThreads.set(false)
     val result = collector.result
     logger.info(s"runBetastyInspector result: ${result.size} files, ${result.values.map(_._1.size).sum} symbols")
-    result
+    (result, diags)
   }
 }
 
@@ -448,7 +476,13 @@ private class SymbolCollector(buildTarget: String) extends scala.tasty.inspector
 }
 
 object TastyIndexer {
-  def apply(buildTarget: String): TastyIndexer = new TastyIndexer(buildTarget)
+
+  /** Cap on how many TASTy diagnostics we attach as span events per jar, to keep a pathologically broken jar from
+    * flooding the trace. The error/warning counts are always exact; only the per-message events are capped.
+    */
+  private val maxReportedDiagnostics = 20
+
+  def apply(buildTarget: String)(using Tracer[IO]): TastyIndexer = new TastyIndexer(buildTarget)
 
   private val suppressedThreads: ThreadLocal[Boolean] = ThreadLocal.withInitial(() => false)
 

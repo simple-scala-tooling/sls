@@ -7,9 +7,12 @@ import dotty.tools.dotc.util.ClasspathFromClassloader
 import org.scala.abusers.sls.toSourceUri
 import org.scala.abusers.sls.AbsolutePath
 import org.scala.abusers.sls.SourceUri
+import org.typelevel.otel4s.trace.Tracer
 
 import java.io.File.pathSeparator
 import java.nio.file.Paths
+
+private given Tracer[IO] = Tracer.noop[IO]
 
 /** A temp workspace whose sources were compiled with in-process dotc, ready to be indexed.
   *
@@ -44,8 +47,8 @@ final case class TestWorkspace(
 object TestWorkspace {
 
   /** Compile `name -> source` pairs into a temp workspace via in-process `dotty.tools.dotc.Main`, against the test
-    * runtime classpath. Acquisition fails if compilation fails (diagnostics go to the console). The temp directory
-    * is removed on release.
+    * runtime classpath. Acquisition fails if compilation fails (diagnostics go to the console). The temp directory is
+    * removed on release.
     */
   def withSources(srcs: (String, String)*): Resource[IO, TestWorkspace] =
     Resource.make(IO.blocking {
@@ -64,10 +67,9 @@ object TestWorkspace {
       val cpString = ClasspathFromClassloader(getClass.getClassLoader)
       val args     = Array("-d", classesDir.toString, "-classpath", cpString) ++ files.values.map(_.toString)
       val reporter = dotty.tools.dotc.Main.process(args)
-      if reporter.hasErrors then
-        throw new RuntimeException(
-          s"TestWorkspace compilation failed with ${reporter.errorCount} error(s) — see console output"
-        )
+      if reporter.hasErrors then throw new RuntimeException(
+        s"TestWorkspace compilation failed with ${reporter.errorCount} error(s) — see console output"
+      )
 
       val classpath = cpString.split(pathSeparator).toList.filter(_.nonEmpty).map(p => AbsolutePath(Paths.get(p)))
       TestWorkspace(sourceRoot, classesDir, files, classpath)
