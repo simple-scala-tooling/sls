@@ -2,6 +2,7 @@ package org.scala.abusers.sls.index
 
 import cats.effect.IO
 import org.scala.abusers.sls.AbsolutePath
+import org.typelevel.otel4s.trace.Tracer
 
 /** Producer-agnostic view of a JAR-indexer: hand it a JAR and a classpath, get back a flat list of [[IndexedSymbol]]s.
   *
@@ -22,8 +23,8 @@ trait SymbolIndexer {
 object SymbolIndexer {
 
   /** TASTy unpickler over `.tasty` entries; type-checked against `classpath`. */
-  def tasty(buildTarget: String): SymbolIndexer = new SymbolIndexer {
-    private val underlying = TastyIndexer(buildTarget)
+  def tasty(buildTarget: String)(using Tracer[IO]): SymbolIndexer = new SymbolIndexer {
+    private val underlying                                                                  = TastyIndexer(buildTarget)
     def indexJar(jar: AbsolutePath, classpath: List[AbsolutePath]): IO[List[IndexedSymbol]] =
       underlying.indexJar(jar, classpath).map(_.values.flatMap(_._1).toList)
   }

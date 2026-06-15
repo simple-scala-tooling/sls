@@ -1,6 +1,7 @@
 package org.scala.abusers.sls.index
 
 import cats.effect.IO
+import org.typelevel.otel4s.trace.Tracer
 import weaver.*
 
 /** Verifies that TastyIndexer, BytecodeIndexer, and JavaIndexer emit the same SymbolId for the same source-level
@@ -14,6 +15,8 @@ import weaver.*
   * removes that drift; the tests run for real now.
   */
 object CrossProducerSpec extends SimpleIOSuite {
+
+  private given Tracer[IO] = Tracer.noop[IO]
 
   private def tastySymbols: IO[List[IndexedSymbol]] =
     TastyIndexer("test").indexJar(IndexTestFixtures.crossProducerJar, Nil).map(_.values.flatMap(_._1).toList)

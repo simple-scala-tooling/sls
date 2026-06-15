@@ -16,6 +16,9 @@ import org.scala.abusers.sls.ScalaBuildTargetInformation
 import org.scala.abusers.sls.ScalaBuildTargetInformation.*
 import org.scala.abusers.sls.SourceUri
 import org.slf4j.LoggerFactory
+import org.typelevel.otel4s.trace.StatusCode
+import org.typelevel.otel4s.trace.Tracer
+import org.typelevel.otel4s.Attribute
 
 import java.io.FileInputStream
 import java.util.zip.ZipInputStream
@@ -28,7 +31,7 @@ case class IndexManager(
     depIndexCache: DepIndexCache,
     coursierCache: Cache,
     notifyProgress: String => IO[Unit] = _ => IO.unit,
-) {
+)(using Tracer[IO]) {
   private val logger          = LoggerFactory.getLogger(this.getClass)
   private val projectIndex    = symbolIndex.project
   private val dependencyIndex = symbolIndex.dependency
@@ -36,37 +39,41 @@ case class IndexManager(
   def updateOpenFile(uri: SourceUri, symbols: List[IndexedSymbol], refs: List[SymbolReference]): IO[Unit] =
     projectIndex.updateFiles(Map(uri -> (symbols, refs)))
 
-  /** Kick off the initial index population in the background. Atomically flips Cold → Bootstrapping; if the
-    * lifecycle is past Cold the call is a no-op (idempotent). On success flips Bootstrapping → Ready; on error
-    * flips Bootstrapping → Failed so [[IndexLifecycle.awaitReady]] short-circuits instead of waiting on a fiber
-    * that will never complete. Spawns under [[supervisor]] so shutdown cancels the work cleanly. Returns once
-    * the fiber is registered — callers do not block on indexing.
+  /** Kick off the initial index population in the background. Atomically flips Cold → Bootstrapping; if the lifecycle
+    * is past Cold the call is a no-op (idempotent). On success flips Bootstrapping → Ready; on error flips
+    * Bootstrapping → Failed so [[IndexLifecycle.awaitReady]] short-circuits instead of waiting on a fiber that will
+    * never complete. Spawns under [[supervisor]] so shutdown cancels the work cleanly. Returns once the fiber is
+    * registered — callers do not block on indexing.
     *
-    * The [[notifyProgress]] callback fires at start and end with a human-readable summary so the LSP client can
-    * surface progress to the user (`window/logMessage` in the wiring layer).
+    * The [[notifyProgress]] callback fires at start and end with a human-readable summary so the LSP client can surface
+    * progress to the user (`window/logMessage` in the wiring layer).
     */
   def bootstrap(targets: Set[ScalaBuildTargetInformation]): IO[Unit] = {
-    val work = for {
-      start <- IO.monotonic
-      _     <- IO(logger.info(s"Index bootstrap starting (targets=${targets.size})"))
-      _     <- notifyProgress(s"Indexing ${targets.size} targets…")
-      _     <- List(
-        indexJdkSources(),
-        indexDependencies(targets),
-        indexExistingProjectArtifacts(targets),
-      ).parSequence_
-      end       <- IO.monotonic
-      projCount <- symbolIndex.projectSymbolCount
-      depCount  <- symbolIndex.dependencySymbolCount
-      files     <- symbolIndex.fileCount
-      jars      <- symbolIndex.jarCount
-      elapsedMs = (end - start).toMillis
-      summary   =
-        s"Index bootstrap complete in ${elapsedMs}ms (projectSymbols=$projCount, dependencySymbols=$depCount, files=$files, jars=$jars)"
-      _ <- IO(logger.info(summary))
-      _ <- notifyProgress(s"Indexed $files files and $jars jars in ${elapsedMs}ms")
-      _ <- lifecycle.transition(IndexPhase.Ready)
-    } yield ()
+    // Root span of the index trace. Per-library `index.jar` spans nest under it via fiber-local context propagation
+    // (the parEvalMap fibers inherit this scope), so the trace reads as a tree: bootstrap → each library.
+    val work = Tracer[IO].span("index.bootstrap", Attribute("index.targets", targets.size.toLong)).surround {
+      for {
+        start <- IO.monotonic
+        _     <- IO(logger.info(s"Index bootstrap starting (targets=${targets.size})"))
+        _     <- notifyProgress(s"Indexing ${targets.size} targets…")
+        _     <- List(
+          indexJdkSources(),
+          indexDependencies(targets),
+          indexExistingProjectArtifacts(targets),
+        ).parSequence_
+        end       <- IO.monotonic
+        projCount <- symbolIndex.projectSymbolCount
+        depCount  <- symbolIndex.dependencySymbolCount
+        files     <- symbolIndex.fileCount
+        jars      <- symbolIndex.jarCount
+        elapsedMs = (end - start).toMillis
+        summary   =
+          s"Index bootstrap complete in ${elapsedMs}ms (projectSymbols=$projCount, dependencySymbols=$depCount, files=$files, jars=$jars)"
+        _ <- IO(logger.info(summary))
+        _ <- notifyProgress(s"Indexed $files files and $jars jars in ${elapsedMs}ms")
+        _ <- lifecycle.transition(IndexPhase.Ready)
+      } yield ()
+    }
 
     val supervised = work.handleErrorWith { e =>
       IO(logger.error("Index bootstrap failed", e)) *>
@@ -177,8 +184,9 @@ case class IndexManager(
         IO(logger.error(s"$format indexing failed for ${target.displayName}", e))
           .as(Map.empty[SourceUri, (List[IndexedSymbol], List[SymbolReference])])
       }
-      relevant = if changedSourceUris.nonEmpty then results.filter { case (uri, _) => changedSourceUris.contains(uri) }
-                 else results
+      relevant =
+        if changedSourceUris.nonEmpty then results.filter { case (uri, _) => changedSourceUris.contains(uri) }
+        else results
       _ <- IO(
         logger.info(
           s"$format index: ${relevant.size} files (of ${results.size}), ${relevant.values.map(_._1.size).sum} symbols, ${relevant.values.map(_._2.size).sum} references"
@@ -211,16 +219,30 @@ case class IndexManager(
   }
 
   private[index] def indexJarSafely(jarPath: AbsolutePath, classpath: List[AbsolutePath]): IO[Unit] = {
-    val jar = jarPath.toNioPath.toString
-    chooseStrategy(jarPath, classpath)
-      .flatMap(runStrategy(jarPath, _))
-      .flatMap(syms => if syms.nonEmpty then dependencyIndex.addJar(jar, syms) else IO.unit)
-      .handleError(e => logger.error(s"Failed to index JAR $jar", e))
+    val jar  = jarPath.toNioPath.toString
+    val name = jarPath.toNioPath.getFileName.toString
+    // One span per library, named after the jar so the trace tree is scannable. The failure is still swallowed (a bad
+    // jar degrades that library, it doesn't fail the bootstrap) but it's recorded on the span — set to Error status
+    // with the exception attached — so the failed library stands out in the trace instead of vanishing into a log line.
+    Tracer[IO].span(s"index.jar $name", Attribute("index.jar", jar)).use { span =>
+      chooseStrategy(jarPath, classpath)
+        .flatMap(runStrategy(jarPath, _))
+        .flatMap(syms =>
+          span.addAttribute(Attribute("index.symbols", syms.size.toLong)) *>
+            (if syms.nonEmpty then dependencyIndex.addJar(jar, syms) else IO.unit)
+        )
+        .handleErrorWith(e =>
+          span.recordException(e) *>
+            span.setStatus(StatusCode.Error, Option(e.getMessage).getOrElse(e.toString)) *>
+            IO(logger.error(s"Failed to index JAR $jar", e))
+        )
+    }
   }
 
   /** Inspect the JAR's contents and (best-effort) resolve its Maven coords to decide how it should be indexed. The
-    * decision is "physical": [[IndexStrategy.Tasty]] only when `.tasty` entries are present; [[IndexStrategy.JavaSource]]
-    * only when a published `-sources` companion exists; otherwise [[IndexStrategy.Bytecode]] (terminal).
+    * decision is "physical": [[IndexStrategy.Tasty]] only when `.tasty` entries are present;
+    * [[IndexStrategy.JavaSource]] only when a published `-sources` companion exists; otherwise
+    * [[IndexStrategy.Bytecode]] (terminal).
     *
     * For the TASTy branch the classpath is the one we'll type-check the jar's TASTy against — coursier resolves the
     * jar's POM to reconstruct the original compile-time view (build tools resolve version conflicts to the newest
@@ -230,7 +252,7 @@ case class IndexManager(
     */
   private def chooseStrategy(jarPath: AbsolutePath, projectCp: List[AbsolutePath]): IO[IndexStrategy] =
     jarContainsTasty(jarPath).flatMap {
-      case true  =>
+      case true =>
         resolveHermeticDep(jarPath, withSources = false)
           .map(_.map(_.classpath).getOrElse(projectCp))
           .map(IndexStrategy.Tasty.apply)
@@ -249,7 +271,7 @@ case class IndexManager(
     val jar                               = jarPath.toNioPath.toString
     def fallback: IO[List[IndexedSymbol]] = bytecodeIndexer.indexJar(jarPath)
     strategy match {
-      case IndexStrategy.Tasty(cp)                  =>
+      case IndexStrategy.Tasty(cp) =>
         SymbolIndexer.tasty("dependency").indexJar(jarPath, cp).handleErrorWith { e =>
           IO(logger.warn(s"TASTy indexing failed for $jar, falling back to bytecode: ${e.getMessage}")) *> fallback
         }
@@ -259,7 +281,7 @@ case class IndexManager(
             IO(logger.error(s"Java source indexing failed for $jar, falling back to bytecode", e)).as(Nil)
           }
           .flatMap(syms => if syms.nonEmpty then IO.pure(syms) else fallback)
-      case IndexStrategy.Bytecode                   => fallback
+      case IndexStrategy.Bytecode => fallback
     }
   }
 
@@ -277,7 +299,7 @@ case class IndexManager(
       depIndexCache.lookup(sha).flatMap {
         case Some(cached) =>
           IO(logger.info(s"Dep index cache hit for $jar (sha=$sha, ${cached.size} symbols)")).as(cached)
-        case None         =>
+        case None =>
           SymbolIndexer.javaSource(jar).indexJar(sourcesJar, cp).flatTap(depIndexCache.store(sha, _))
       }
     }

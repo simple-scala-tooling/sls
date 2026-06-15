@@ -2,12 +2,15 @@ package org.scala.abusers.sls.index
 
 import cats.effect.IO
 import org.scala.abusers.sls.SourceUri
+import org.typelevel.otel4s.trace.Tracer
 import weaver.*
 
 /** Indexes the pre-compiled `tastyIndexerFixture` JAR published to `~/.m2` by `sls.test.forkArgs` — see
   * `IndexTestFixtures`. No dotc at test time.
   */
 object TastyIndexerSpec extends SimpleIOSuite {
+
+  private given Tracer[IO] = Tracer.noop[IO]
 
   private def indexFixture: IO[Map[SourceUri, (List[IndexedSymbol], List[SymbolReference])]] =
     TastyIndexer("test-target").indexJar(IndexTestFixtures.tastyIndexerJar, Nil)

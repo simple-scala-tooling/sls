@@ -12,5 +12,8 @@ object LoggingUtils {
 
     def logDebug(msg: String): IO[Unit] =
       client.windowLogMessage(lsp.LogMessageParams(lsp.MessageType.LOG, msg))
+
+    def logError(msg: String): IO[Unit] =
+      client.windowLogMessage(lsp.LogMessageParams(lsp.MessageType.ERROR, msg))
   }
 }

@@ -6,7 +6,10 @@ import dotty.tools.dotc.core.Phases.Phase
 import dotty.tools.dotc.fromtasty.ReadTasty
 import dotty.tools.dotc.fromtasty.TASTYCompiler
 import dotty.tools.dotc.fromtasty.TASTYRun
+import dotty.tools.dotc.interfaces
 import dotty.tools.dotc.quoted.QuotesCache
+import dotty.tools.dotc.reporting.Diagnostic
+import dotty.tools.dotc.reporting.Reporter
 import dotty.tools.dotc.util.ClasspathFromClassloader
 import dotty.tools.dotc.CompilationUnit
 import dotty.tools.dotc.Compiler
@@ -19,6 +22,9 @@ import scala.quoted.runtime.impl.QuotesImpl
 import scala.tasty.inspector.Inspector
 import scala.tasty.inspector.Tasty
 
+/** A diagnostic dotc emitted while reading TASTy: an error or warning with a rendered, position-prefixed message. */
+final case class IndexDiagnostic(isError: Boolean, message: String)
+
 /** A low-level TASTy inspection driver that bypasses [[scala.tasty.inspector.TastyInspector]] to allow reading both
   * regular `.tasty` files and `.betasty` files produced by best-effort compilation (via `-Ywith-best-effort-tasty`).
   *
@@ -27,29 +33,49 @@ import scala.tasty.inspector.Tasty
   */
 object TastyInspectorDriver {
 
+  /** Returns the diagnostics dotc emitted while reading the TASTy (errors/warnings), captured rather than printed.
+    * Empty means a clean read. A non-empty list does **not** mean nothing was indexed — the inspector collects what it
+    * can past per-file errors; the diagnostics tell the caller the result is partial/degraded.
+    */
   def inspectTastyFiles(
       tastyFiles: List[String],
       jars: List[String],
       dependenciesClasspath: List[String],
-  )(inspector: Inspector): Boolean =
+  )(inspector: Inspector): List[IndexDiagnostic] =
     inspect(tastyFiles ::: jars, dependenciesClasspath, bestEffort = false)(inspector)
 
   def inspectBetastyFiles(
       betastyFiles: List[String],
       jars: List[String],
       dependenciesClasspath: List[String],
-  )(inspector: Inspector): Boolean =
+  )(inspector: Inspector): List[IndexDiagnostic] =
     inspect(betastyFiles ::: jars, dependenciesClasspath, bestEffort = true)(inspector)
 
   private def inspect(files: List[String], dependenciesClasspath: List[String], bestEffort: Boolean)(
       inspector: Inspector
-  ): Boolean =
+  ): List[IndexDiagnostic] =
     files match {
-      case Nil => true
+      case Nil => Nil
       case _   =>
-        val reporter = inspectorDriver(inspector).process(inspectorArgs(dependenciesClasspath, files, bestEffort))
-        !reporter.hasErrors
+        val reporter = new CollectingReporter
+        inspectorDriver(inspector).process(inspectorArgs(dependenciesClasspath, files, bestEffort), reporter, null)
+        reporter.collected
     }
+
+  /** A dotc [[Reporter]] that captures diagnostics (rendering message + position while the compiler context is still
+    * alive) instead of printing them to stderr — both to stop the red spew corrupting the user's view and to hand the
+    * structured errors back to the indexer.
+    */
+  private class CollectingReporter extends Reporter {
+    private val buf = scala.collection.mutable.ListBuffer.empty[IndexDiagnostic]
+
+    override def doReport(dia: Diagnostic)(using Context): Unit = {
+      val where = if dia.pos.exists then s"${dia.pos.source.name}:${dia.pos.startLine + 1}: " else ""
+      buf += IndexDiagnostic(isError = dia.level >= interfaces.Diagnostic.ERROR, message = where + dia.message)
+    }
+
+    def collected: List[IndexDiagnostic] = buf.toList
+  }
 
   private def inspectorDriver(inspector: Inspector) = {
     class InspectorDriver extends Driver {

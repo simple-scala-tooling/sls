@@ -94,6 +94,7 @@ class ServerImpl(
   }
 
   def initialized(params: lsp.InitializedParams): IO[Unit] =
+
     computationQueue.synchronously {
       for {
         _       <- bspStateManager.importBuild
@@ -102,41 +103,57 @@ class ServerImpl(
       } yield ()
     }
 
+  /** Trace an LSP op and, on failure, push the full stacktrace to the client's Output channel (`window/logMessage`,
+    * Error) so it's visible in the editor without opening the trace backend — the popup the client shows only carries
+    * `getMessage`. The span already records the exception; this re-raises, so the JSON-RPC error response is still
+    * returned.
+    */
+  private def op[A](name: String)(fa: IO[A]): IO[A] =
+    Tracer[IO].span(name).profilingSurround(fa).onError { case e =>
+      lspClient.logError(s"$name failed: ${e.getMessage}\n${stackTraceOf(e)}").attempt.void
+    }
+
+  private def stackTraceOf(e: Throwable): String = {
+    val sw = new java.io.StringWriter
+    e.printStackTrace(new java.io.PrintWriter(sw))
+    sw.toString
+  }
+
   def textDocumentCompletionOp(params: lsp.CompletionParams): IO[lsp.TextDocumentCompletionOpOutput] =
     computationQueue.synchronously {
-      Tracer[IO].span("completion").profilingSurround(handleCompletion(params))
+      op("completion")(handleCompletion(params))
     }
   def textDocumentDefinitionOp(params: lsp.DefinitionParams): IO[lsp.TextDocumentDefinitionOpOutput] =
     computationQueue.synchronously {
-      Tracer[IO].span("go-to-defintion").profilingSurround(handleDefinition(params))
+      op("go-to-defintion")(handleDefinition(params))
     }
   def textDocumentDidChange(params: lsp.DidChangeTextDocumentParams): IO[Unit] =
     computationQueue.synchronously {
-      Tracer[IO].span("did-change").profilingSurround(handleDidChange(params))
+      op("did-change")(handleDidChange(params))
     }
   def textDocumentDidClose(params: lsp.DidCloseTextDocumentParams): IO[Unit] =
     computationQueue.synchronously {
-      Tracer[IO].span("did-close").profilingSurround(handleDidClose(params))
+      op("did-close")(handleDidClose(params))
     }
   def textDocumentDidOpen(params: lsp.DidOpenTextDocumentParams): IO[Unit] =
     computationQueue.synchronously {
-      Tracer[IO].span("did-open").profilingSurround(handleDidOpen(params))
+      op("did-open")(handleDidOpen(params))
     }
   def textDocumentDidSave(params: lsp.DidSaveTextDocumentParams): IO[Unit] =
     computationQueue.synchronously {
-      Tracer[IO].span("did-save").profilingSurround(handleDidSave(params))
+      op("did-save")(handleDidSave(params))
     }
   def textDocumentHoverOp(params: lsp.HoverParams): IO[lsp.TextDocumentHoverOpOutput] =
     computationQueue.synchronously {
-      Tracer[IO].span("hover").profilingSurround(handleHover(params))
+      op("hover")(handleHover(params))
     }
   def textDocumentInlayHintOp(params: lsp.InlayHintParams): IO[lsp.TextDocumentInlayHintOpOutput] =
     computationQueue.synchronously {
-      Tracer[IO].span("inlay-hints").profilingSurround(handleInlayHints(params))
+      op("inlay-hints")(handleInlayHints(params))
     }
   def textDocumentSignatureHelpOp(params: lsp.SignatureHelpParams): IO[lsp.TextDocumentSignatureHelpOpOutput] =
     computationQueue.synchronously {
-      Tracer[IO].span("signature-help").profilingSurround(handleSignatureHelp(params))
+      op("signature-help")(handleSignatureHelp(params))
     }
 
   def toPC(completionTriggerKind: Option[lsp.CompletionTriggerKind]): lsp4j.CompletionTriggerKind =
@@ -361,7 +378,7 @@ class ServerImpl(
 
   def textDocumentReferencesOp(params: lsp.ReferenceParams): IO[lsp.TextDocumentReferencesOpOutput] =
     computationQueue.synchronously {
-      handleReferences(params)
+      op("references")(handleReferences(params))
     }
 
   private def handleReferences(
@@ -438,10 +455,11 @@ class ServerImpl(
   def typeHierarchySubtypesOp(params: lsp.TypeHierarchySubtypesParams): IO[lsp.TypeHierarchySubtypesOpOutput] =
     IO.pure(lsp.TypeHierarchySubtypesOpOutput(None))
 
-  def workspaceDidDeleteFiles(params: lsp.DeleteFilesParams): IO[Unit] = {
-    val uris = params.files.map(f => SourceUri(f.uri)).toSet
-    indexManager.onFilesDeleted(uris)
-  }
+  def workspaceDidDeleteFiles(params: lsp.DeleteFilesParams): IO[Unit] =
+    op("did-delete-files") {
+      val uris = params.files.map(f => SourceUri(f.uri)).toSet
+      indexManager.onFilesDeleted(uris)
+    }
 
   def slsDebugIndexOp(params: Option[SlsDebugIndexParams]): IO[SlsDebugIndexOpOutput] = {
     val query = params.flatMap(_.query).filter(_.nonEmpty)

@@ -6,6 +6,7 @@ import org.objectweb.asm.ClassWriter
 import org.objectweb.asm.Opcodes
 import org.scala.abusers.sls.AbsolutePath
 import org.scala.abusers.sls.SourceUri
+import org.typelevel.otel4s.trace.Tracer
 import weaver.*
 
 import java.io.FileOutputStream
@@ -14,6 +15,8 @@ import java.util.zip.ZipOutputStream
 
 object IndexManagerSpec extends SimpleIOSuite {
 
+  private given Tracer[IO] = Tracer.noop[IO]
+
   private val bytecodeIndexer = BytecodeIndexer()
 
   private def withManager[A](
@@ -21,9 +24,9 @@ object IndexManagerSpec extends SimpleIOSuite {
   ): IO[A] =
     Supervisor[IO].use { sup =>
       for {
-        pi <- ProjectIndex.empty
-        di <- DependencyIndex.empty
-        lc <- IndexLifecycle.empty
+        pi       <- ProjectIndex.empty
+        di       <- DependencyIndex.empty
+        lc       <- IndexLifecycle.empty
         cacheDir <- IO.blocking(os.temp.dir(prefix = "index-manager-test-cache").toNIO)
         mgr = IndexManager(
           SymbolIndex(pi, di),
@@ -95,8 +98,8 @@ object IndexManagerSpec extends SimpleIOSuite {
   test("dependency JAR indexed via bytecode — symbols findable") {
     val cls = javaClass("com/example/Widget")
     for {
-      jar <- createJar(List(cls))
-      di  <- DependencyIndex.empty
+      jar   <- createJar(List(cls))
+      di    <- DependencyIndex.empty
       syms  <- bytecodeIndexer.indexJar(jar)
       _     <- di.addJar(jar.toNioPath.toString, syms)
       found <- di.searchSymbols("widget")
