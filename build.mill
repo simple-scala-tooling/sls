@@ -1,6 +1,6 @@
 //| mill-repositories: ["https://central.sonatype.com/repository/maven-snapshots/"]
 //| mvnDeps:
-//| - com.disneystreaming.smithy4s::smithy4s-mill-codegen-plugin::0.18.52
+//| - com.disneystreaming.smithy4s::smithy4s-mill-codegen-plugin::0.19.7
 //| - com.goyeau::mill-scalafix::0.6.0
 
 import com.goyeau.mill.scalafix.ScalafixModule
@@ -15,9 +15,30 @@ import mill.javalib.publish.VersionControl
 import scalalib.*
 import smithy4s.codegen.mill.*
 
-val jsonrpcVersion = "0.1.0"
-val smithyVersion  = "1.70.0"
-val scala3Version  = "3.8.3"
+val jsonrpcVersion              = "0.2.0"
+val smithyVersion               = "1.71.0"
+val scala3Version               = "3.8.3"
+val testModuleScalaVersion      = "3.7.4"
+val alloyCoreVersion            = "0.3.39"
+val lspSmithyDefinitionsVersion = "0.3.0"
+val pyroscopeAgentVersion       = "2.1.2"
+val catsEffectVersion           = "3.7.0"
+val otel4sSdkVersion            = "0.13.1"
+val otel4sExperimentalVersion   = "0.7.0"
+val fs2Version                  = "3.13.0"
+val chimneyVersion              = "1.8.1"
+val logbackVersion              = "1.4.14"
+val osLibVersion                = "0.11.4"
+val bsp4sVersion                = "0.7.0"
+val mtagsInterfacesVersion      = "1.6.3"
+val scacheVersion               = "5.1.2"
+val catsParseVersion            = "1.1.0"
+val coursierInterfaceVersion    = "1.0.28"
+val asmVersion                  = "9.6"
+val jsoniterScalaVersion        = "2.30.5"
+val weaverCatsVersion           = "0.12.0"
+val zincVersion                 = "1.12.0"
+val guavaVersion                = "33.5.0-jre"
 
 trait CommonScalaModule extends ScalaModule with ScalafixModule {
   override def repositoriesTask: Task[Seq[Repository]] = Task.Anon {
@@ -36,21 +57,21 @@ trait CommonScalaModule extends ScalaModule with ScalafixModule {
 object slsSmithy extends CommonScalaModule with Smithy4sModule {
 
   override def mvnDeps = Seq(
-    mvn"com.disneystreaming.alloy:alloy-core:0.3.36", // Conflict with alloy
+    mvn"com.disneystreaming.alloy:alloy-core:$alloyCoreVersion", // Conflict with alloy
     mvn"com.disneystreaming.smithy4s::smithy4s-core:${smithy4sVersion()}",
     mvn"tech.neander:jsonrpclib-smithy:$jsonrpcVersion",
-    mvn"io.github.simple-scala-tooling:lsp-smithy-definitions:0.2.0",
+    mvn"io.github.simple-scala-tooling:lsp-smithy-definitions:$lspSmithyDefinitionsVersion",
   )
 }
 
 object profilingRuntime extends CommonScalaModule with PublishModule {
   def mvnDeps = Seq(
-    mvn"io.pyroscope:agent:2.1.2",
-    mvn"org.typelevel::cats-effect:3.6.3",
-    mvn"org.typelevel::otel4s-sdk:0.13.1",
-    mvn"org.typelevel::otel4s-sdk-exporter:0.13.1",
-    mvn"org.typelevel::otel4s-experimental-metrics:0.7.0",
-    mvn"org.typelevel::otel4s-instrumentation-metrics:0.13.1",
+    mvn"io.pyroscope:agent:$pyroscopeAgentVersion",
+    mvn"org.typelevel::cats-effect:$catsEffectVersion",
+    mvn"org.typelevel::otel4s-sdk:$otel4sSdkVersion",
+    mvn"org.typelevel::otel4s-sdk-exporter:$otel4sSdkVersion",
+    mvn"org.typelevel::otel4s-experimental-metrics:$otel4sExperimentalVersion",
+    mvn"org.typelevel::otel4s-instrumentation-metrics:$otel4sSdkVersion",
   )
 
   def pomSettings = PomSettings(
@@ -86,22 +107,22 @@ object sls extends CommonScalaModule {
   )
 
   def mvnDeps = Seq(
-    mvn"org.typelevel::cats-effect:3.7.0",
-    mvn"co.fs2::fs2-io:3.13.0",
-    mvn"io.scalaland::chimney:1.8.1",
-    mvn"io.scalaland::chimney-java-collections:1.8.1",
+    mvn"org.typelevel::cats-effect:$catsEffectVersion",
+    mvn"co.fs2::fs2-io:$fs2Version",
+    mvn"io.scalaland::chimney:$chimneyVersion",
+    mvn"io.scalaland::chimney-java-collections:$chimneyVersion",
     mvn"tech.neander::jsonrpclib-fs2::$jsonrpcVersion",
-    mvn"ch.qos.logback:logback-classic:1.4.14",
-    mvn"com.lihaoyi::os-lib:0.11.4",
-    mvn"org.polyvariant.smithy4s-bsp::bsp4s:0.6.0",
-    mvn"org.scalameta:mtags-interfaces:1.6.3",
-    mvn"com.evolution::scache:5.1.2",
-    mvn"org.typelevel::cats-parse:1.1.0",
-    mvn"io.get-coursier:interface:1.0.28",
+    mvn"ch.qos.logback:logback-classic:$logbackVersion",
+    mvn"com.lihaoyi::os-lib:$osLibVersion",
+    mvn"org.polyvariant.smithy4s-bsp::bsp4s:$bsp4sVersion",
+    mvn"org.scalameta:mtags-interfaces:$mtagsInterfacesVersion",
+    mvn"com.evolution::scache:$scacheVersion",
+    mvn"org.typelevel::cats-parse:$catsParseVersion",
+    mvn"io.get-coursier:interface:$coursierInterfaceVersion",
     mvn"org.scala-lang::scala3-tasty-inspector:${scala3Version}",
-    mvn"org.ow2.asm:asm:9.6",
-    mvn"com.github.plokhotnyuk.jsoniter-scala::jsoniter-scala-core:2.30.5",
-    mvn"com.github.plokhotnyuk.jsoniter-scala::jsoniter-scala-macros:2.30.5",
+    mvn"org.ow2.asm:asm:$asmVersion",
+    mvn"com.github.plokhotnyuk.jsoniter-scala::jsoniter-scala-core:$jsoniterScalaVersion",
+    mvn"com.github.plokhotnyuk.jsoniter-scala::jsoniter-scala-macros:$jsoniterScalaVersion",
   )
 
   def javacOptions = Seq(
@@ -110,12 +131,12 @@ object sls extends CommonScalaModule {
 
   object test extends ScalaTests {
     def mvnDeps = Seq(
-      mvn"org.typelevel::weaver-cats:0.12.0"
+      mvn"org.typelevel::weaver-cats:$weaverCatsVersion"
     )
     def testFramework = "weaver.framework.CatsEffect"
 
-    /** Publish fixtures to ~/.m2 before running tests and expose their coordinates
-      * via system properties. Mirrors the cellar test-fixture pattern.
+    /** Publish fixtures to ~/.m2 before running tests and expose their coordinates via system properties. Mirrors the
+      * cellar test-fixture pattern.
       *
       * Tests read these properties via `org.scala.abusers.sls.index.IndexTestFixtures`.
       */
@@ -144,7 +165,7 @@ object sls extends CommonScalaModule {
 object zincSmithy extends CommonScalaModule with Smithy4sModule with PublishModule {
 
   override def mvnDeps = Seq(
-    mvn"com.disneystreaming.alloy:alloy-core:0.3.38", // Conflict with alloy
+    mvn"com.disneystreaming.alloy:alloy-core:$alloyCoreVersion", // Conflict with alloy
     mvn"com.disneystreaming.smithy4s::smithy4s-core:${smithy4sVersion()}",
     mvn"tech.neander:jsonrpclib-smithy:$jsonrpcVersion",
   )
@@ -168,19 +189,19 @@ object exampleZincCliClient extends CommonScalaModule {
   def moduleDeps: Seq[JavaModule] = Seq(zincCli)
 
   def mvnDeps = Seq(
-    mvn"org.typelevel::cats-effect:3.7.0",
-    mvn"co.fs2::fs2-io:3.13.0",
-    mvn"io.scalaland::chimney:1.8.1",
-    mvn"io.scalaland::chimney-java-collections:1.8.1",
+    mvn"org.typelevel::cats-effect:$catsEffectVersion",
+    mvn"co.fs2::fs2-io:$fs2Version",
+    mvn"io.scalaland::chimney:$chimneyVersion",
+    mvn"io.scalaland::chimney-java-collections:$chimneyVersion",
     mvn"tech.neander::jsonrpclib-fs2::$jsonrpcVersion",
-    mvn"ch.qos.logback:logback-classic:1.4.14",
-    mvn"com.lihaoyi::os-lib:0.11.4",
-    mvn"org.polyvariant.smithy4s-bsp::bsp4s:0.6.0",
+    mvn"ch.qos.logback:logback-classic:$logbackVersion",
+    mvn"com.lihaoyi::os-lib:$osLibVersion",
+    mvn"org.polyvariant.smithy4s-bsp::bsp4s:$bsp4sVersion",
     mvn"tech.neander::jsonrpclib-smithy4s::$jsonrpcVersion",
-    mvn"com.evolution::scache:5.1.2",
-    mvn"org.typelevel::cats-parse:1.1.0",
-    mvn"io.get-coursier:interface:1.0.28",
-    mvn"org.ow2.asm:asm:9.6",
+    mvn"com.evolution::scache:$scacheVersion",
+    mvn"org.typelevel::cats-parse:$catsParseVersion",
+    mvn"io.get-coursier:interface:$coursierInterfaceVersion",
+    mvn"org.ow2.asm:asm:$asmVersion",
   )
 
   override def forkEnv = Task {
@@ -194,7 +215,7 @@ object exampleZincCliClient extends CommonScalaModule {
 }
 
 object testModule extends ScalaModule {
-  def scalaVersion = "3.7.4"
+  def scalaVersion = testModuleScalaVersion
 
 }
 
@@ -211,9 +232,8 @@ def fixturePom(desc: String) = PomSettings(
   ),
 )
 
-/** Cross-producer fixture (Lib.scala + LibJ.java) compiled into a JAR with both
-  * `.class` and `.tasty` entries. Published to local M2 by `sls.test.forkArgs`;
-  * consumed by `CrossProducerSpec` via `IndexTestFixtures`.
+/** Cross-producer fixture (Lib.scala + LibJ.java) compiled into a JAR with both `.class` and `.tasty` entries.
+  * Published to local M2 by `sls.test.forkArgs`; consumed by `CrossProducerSpec` via `IndexTestFixtures`.
   */
 object crossProducerFixture extends CommonScalaModule with PublishModule {
   def publishVersion = fixtureVersion
@@ -221,9 +241,8 @@ object crossProducerFixture extends CommonScalaModule with PublishModule {
   def pomSettings    = fixturePom("SLS cross-producer test fixture")
 }
 
-/** TastyIndexer fixture sources compiled into a JAR with `.class` and `.tasty`.
-  * Published to local M2 by `sls.test.forkArgs`; consumed by `TastyIndexerSpec`
-  * via `IndexTestFixtures`.
+/** TastyIndexer fixture sources compiled into a JAR with `.class` and `.tasty`. Published to local M2 by
+  * `sls.test.forkArgs`; consumed by `TastyIndexerSpec` via `IndexTestFixtures`.
   */
 object tastyIndexerFixture extends CommonScalaModule with PublishModule {
   def publishVersion = fixtureVersion
@@ -244,21 +263,21 @@ object zincCli extends CommonScalaModule with PublishModule {
   def moduleDeps: Seq[PublishModule] = Seq(zincSmithy)
 
   def mvnDeps = Seq(
-    mvn"org.typelevel::cats-effect:3.7.0",
-    mvn"co.fs2::fs2-io:3.13.0",
-    mvn"io.scalaland::chimney:1.8.1",
-    mvn"org.scala-sbt:zinc_2.13:1.12.0",
-    mvn"io.scalaland::chimney-java-collections:1.8.1",
+    mvn"org.typelevel::cats-effect:$catsEffectVersion",
+    mvn"co.fs2::fs2-io:$fs2Version",
+    mvn"io.scalaland::chimney:$chimneyVersion",
+    mvn"org.scala-sbt:zinc_2.13:$zincVersion",
+    mvn"io.scalaland::chimney-java-collections:$chimneyVersion",
     mvn"tech.neander::jsonrpclib-fs2::$jsonrpcVersion",
-    mvn"ch.qos.logback:logback-classic:1.4.14",
-    mvn"com.lihaoyi::os-lib:0.11.4",
-    mvn"org.polyvariant.smithy4s-bsp::bsp4s:0.6.0",
+    mvn"ch.qos.logback:logback-classic:$logbackVersion",
+    mvn"com.lihaoyi::os-lib:$osLibVersion",
+    mvn"org.polyvariant.smithy4s-bsp::bsp4s:$bsp4sVersion",
     mvn"tech.neander::jsonrpclib-smithy4s::$jsonrpcVersion",
-    mvn"com.google.guava:guava:33.5.0-jre",
-    mvn"com.evolution::scache:5.1.2",
-    mvn"org.typelevel::cats-parse:1.1.0",
-    mvn"io.get-coursier:interface:1.0.28",
-    mvn"org.ow2.asm:asm:9.6",
+    mvn"com.google.guava:guava:$guavaVersion",
+    mvn"com.evolution::scache:$scacheVersion",
+    mvn"org.typelevel::cats-parse:$catsParseVersion",
+    mvn"io.get-coursier:interface:$coursierInterfaceVersion",
+    mvn"org.ow2.asm:asm:$asmVersion",
   )
 
   def pomSettings = PomSettings(
