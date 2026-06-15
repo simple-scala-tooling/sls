@@ -24,6 +24,7 @@ trait PresentationCompilerProvider {
 private class CachingPresentationCompilerProvider(
     serviceLoader: BlockingServiceLoader,
     compilers: SCache[IO, BuildTargetIdentifier, RawPresentationCompiler],
+    versionOverride: PcVersionOverride,
 ) extends PresentationCompilerProvider {
   private val cache = Cache.create() // .withLogger TODO No completions here
 
@@ -63,8 +64,15 @@ private class CachingPresentationCompilerProvider(
       )
     } yield pc.newInstance("pc-id-replace", projectClasspath.map(_.toNioPath).asJava, scalacOptions0.toList.asJava)
 
-  def get(info: ScalaBuildTargetInformation)(using SynchronizedState): IO[RawPresentationCompiler] =
-    compilers.getOrUpdate(info.buildTarget.id)(createPC(info.scalaVersion, info.classpath, info.compilerOptions))
+  def get(info: ScalaBuildTargetInformation)(using SynchronizedState): IO[RawPresentationCompiler] = {
+    val pcVersion = versionOverride.resolve(info.displayName, info.scalaVersion)
+    val logOverride = IO.whenA(pcVersion.value != info.scalaVersion.value) {
+      IO.consoleForIO.error(
+        s"PC version override for module '${info.displayName}': ${info.scalaVersion.value} -> ${pcVersion.value}"
+      )
+    }
+    logOverride *> compilers.getOrUpdate(info.buildTarget.id)(createPC(pcVersion, info.classpath, info.compilerOptions))
+  }
 }
 
 object PresentationCompilerProvider {
@@ -82,7 +90,7 @@ object PresentationCompilerProvider {
           ExpiringCache.Config(expireAfterRead = 5.minutes),
           None,
         )
-    } yield CachingPresentationCompilerProvider(serviceLoader, cache)
+    } yield CachingPresentationCompilerProvider(serviceLoader, cache, PcVersionOverride.fromEnv)
 }
 
 opaque type ScalaVersion = String
