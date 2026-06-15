@@ -31,10 +31,11 @@ object AbsolutePath {
     def toFile: java.io.File                 = ap.toFile
     def exists: Boolean                      = java.nio.file.Files.exists(ap)
     def deleteRecursively: Unit              =
-      java.nio.file.Files
-        .walk(ap)
-        .sorted(java.util.Comparator.reverseOrder())
-        .forEach(java.nio.file.Files.deleteIfExists(_))
+      if java.nio.file.Files.exists(ap) then
+        java.nio.file.Files
+          .walk(ap)
+          .sorted(java.util.Comparator.reverseOrder())
+          .forEach(java.nio.file.Files.deleteIfExists(_))
   }
 }
 
