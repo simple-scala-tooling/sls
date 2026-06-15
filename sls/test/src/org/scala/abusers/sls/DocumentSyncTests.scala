@@ -1,16 +1,10 @@
 package org.scala.abusers.sls
 
-import cats.effect.IO
 import lsp.*
+import org.scala.abusers.sls.util.TestComputationQueue
 import weaver.SimpleIOSuite
 
 object TextDocumentSyncSuite extends SimpleIOSuite {
-
-  class TestComputationQueue extends ComputationQueue {
-    override def synchronously[A](computation: (SynchronizedState) ?=> IO[A]): IO[A] = computation
-    def unsafeGetState: SynchronizedState                                            = summon[SynchronizedState]
-    override def pushSync(computation: IO[Unit]): IO[Unit]                           = IO.unit
-  }
 
   given SynchronizedState = TestComputationQueue().unsafeGetState
 

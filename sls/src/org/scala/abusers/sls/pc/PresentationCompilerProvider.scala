@@ -16,10 +16,15 @@ import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 import scala.meta.pc.RawPresentationCompiler
 
-class PresentationCompilerProvider(
+trait PresentationCompilerProvider {
+  def get(info: ScalaBuildTargetInformation)(using SynchronizedState): IO[RawPresentationCompiler]
+  def invalidateCompilers(): IO[Unit]
+}
+
+private class CachingPresentationCompilerProvider(
     serviceLoader: BlockingServiceLoader,
     compilers: SCache[IO, BuildTargetIdentifier, RawPresentationCompiler],
-) {
+) extends PresentationCompilerProvider {
   private val cache = Cache.create() // .withLogger TODO No completions here
 
   private def fetchPresentationCompilerJars(scalaVersion: ScalaVersion): IO[Seq[AbsolutePath]] = {
@@ -65,16 +70,19 @@ class PresentationCompilerProvider(
 object PresentationCompilerProvider {
   val classname = "dotty.tools.pc.RawScalaPresentationCompiler"
 
-  def instance: IO[PresentationCompilerProvider] =
+  /** The provider must live inside the cache's Resource scope: the previous `.use(cache => IO(provider))` released
+    * the cache immediately, letting the provider escape with a released cache and leaking scache's background expiry
+    * fiber past the caller's lifetime.
+    */
+  def instance: cats.effect.Resource[IO, PresentationCompilerProvider] =
     for {
-      serviceLoader <- BlockingServiceLoader.instance
-      pcProvider    <- SCache
+      serviceLoader <- cats.effect.Resource.eval(BlockingServiceLoader.instance)
+      cache         <- SCache
         .expiring[IO, BuildTargetIdentifier, RawPresentationCompiler]( // we will need to move this out because other services will want to manage the state of the cache and invalidate when configuration changes also this shoul be ModuleFingerprint or something like that
           ExpiringCache.Config(expireAfterRead = 5.minutes),
           None,
         )
-        .use(cache => IO(PresentationCompilerProvider(serviceLoader, cache)))
-    } yield pcProvider
+    } yield CachingPresentationCompilerProvider(serviceLoader, cache)
 }
 
 opaque type ScalaVersion = String

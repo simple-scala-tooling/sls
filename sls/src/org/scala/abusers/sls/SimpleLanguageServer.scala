@@ -70,7 +70,7 @@ object SimpleScalaServer extends ProfilingIOApp {
   private def server(lspClient: SlsLanguageClient[IO])(using Tracer[IO], Meter[IO]): Resource[IO, ServerImpl] =
     for {
       steward           <- ResourceSupervisor[IO]
-      pcProvider        <- PresentationCompilerProvider.instance.toResource
+      pcProvider        <- PresentationCompilerProvider.instance
       textDocumentSync  <- TextDocumentSyncManager.instance.toResource
       bspClientDeferred <- Deferred[IO, BuildServer].toResource
       cspClientDeferred <- Deferred[IO, CspServer[IO]].toResource
