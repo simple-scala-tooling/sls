@@ -52,10 +52,7 @@ private class CachingPresentationCompilerProvider(
     IO.blocking {
       val fullClasspath    = compilerClasspath ++ projectClasspath
       val urlFullClasspath = fullClasspath.map(_.toFile.toURI.toURL)
-      // Isolate from the host's bundled scala3-compiler: load dotty.tools.* + stdlib from these jars, share only the
-      // sls<->PC bridge packages with the host. See PcParentClassLoader.
-      val parent = PcParentClassLoader(getClass.getClassLoader)
-      URLClassLoader(urlFullClasspath.toArray, parent)
+      URLClassLoader(urlFullClasspath.toArray, PcParentClassLoader(getClass.getClassLoader))
     }
 
   private def createPC(scalaVersion: ScalaVersion, projectClasspath: List[AbsolutePath], scalacOptions: List[String]) =
@@ -80,7 +77,7 @@ private class CachingPresentationCompilerProvider(
         )
       )
     }
-    // Inside the getOrUpdate thunk so it logs once per PC creation, not on every request.
+    // in the thunk so it logs once per PC creation, not per request
     compilers.getOrUpdate(info.buildTarget.id)(
       logOverride *> createPC(pcVersion, info.classpath, info.compilerOptions)
     )
