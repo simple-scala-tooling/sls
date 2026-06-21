@@ -10,6 +10,7 @@ import org.scala.abusers.sls.CoursierResolver
 import org.scala.abusers.sls.ScalaBuildTargetInformation
 import org.scala.abusers.sls.ScalaBuildTargetInformation.*
 import org.scala.abusers.sls.SynchronizedState
+import org.slf4j.LoggerFactory
 
 import java.net.URLClassLoader
 import scala.concurrent.duration.*
@@ -24,8 +25,10 @@ trait PresentationCompilerProvider {
 private class CachingPresentationCompilerProvider(
     serviceLoader: BlockingServiceLoader,
     compilers: SCache[IO, BuildTargetIdentifier, RawPresentationCompiler],
+    versionOverride: PcVersionOverride,
 ) extends PresentationCompilerProvider {
-  private val cache = Cache.create() // .withLogger TODO No completions here
+  private val logger = LoggerFactory.getLogger(getClass)
+  private val cache  = Cache.create() // .withLogger TODO No completions here
 
   private def fetchPresentationCompilerJars(scalaVersion: ScalaVersion): IO[Seq[AbsolutePath]] = {
     val dep = Dependency.of(
@@ -49,7 +52,10 @@ private class CachingPresentationCompilerProvider(
     IO.blocking {
       val fullClasspath    = compilerClasspath ++ projectClasspath
       val urlFullClasspath = fullClasspath.map(_.toFile.toURI.toURL)
-      URLClassLoader(urlFullClasspath.toArray)
+      // Isolate from the host's bundled scala3-compiler: load dotty.tools.* + stdlib from these jars, share only the
+      // sls<->PC bridge packages with the host. See PcParentClassLoader.
+      val parent = PcParentClassLoader(getClass.getClassLoader)
+      URLClassLoader(urlFullClasspath.toArray, parent)
     }
 
   private def createPC(scalaVersion: ScalaVersion, projectClasspath: List[AbsolutePath], scalacOptions: List[String]) =
@@ -58,13 +64,27 @@ private class CachingPresentationCompilerProvider(
       classloader       <- freshPresentationCompilerClassloader(projectClasspath, compilerClasspath)
       pc <- serviceLoader.load(classOf[RawPresentationCompiler], PresentationCompilerProvider.classname, classloader)
       scalacOptions0 = scalacOptions ++ Seq("-Ywith-best-effort-tasty", "-Ybest-effort")
-      _ <- IO.consoleForIO.error(
-        s"Creating presentation compiler with classpath: ${projectClasspath.map(_.toNioPath.toString).mkString(", ")} and options: ${scalacOptions0.mkString(" ")}"
+      _ <- IO(
+        logger.info(
+          s"Creating presentation compiler with classpath: ${projectClasspath.map(_.toNioPath.toString).mkString(", ")} and options: ${scalacOptions0.mkString(" ")}"
+        )
       )
     } yield pc.newInstance("pc-id-replace", projectClasspath.map(_.toNioPath).asJava, scalacOptions0.toList.asJava)
 
-  def get(info: ScalaBuildTargetInformation)(using SynchronizedState): IO[RawPresentationCompiler] =
-    compilers.getOrUpdate(info.buildTarget.id)(createPC(info.scalaVersion, info.classpath, info.compilerOptions))
+  def get(info: ScalaBuildTargetInformation)(using SynchronizedState): IO[RawPresentationCompiler] = {
+    val pcVersion = versionOverride.resolve(info.displayName, info.scalaVersion)
+    val logOverride = IO.whenA(pcVersion.value != info.scalaVersion.value) {
+      IO(
+        logger.info(
+          s"PC version override for module '${info.displayName}': ${info.scalaVersion.value} -> ${pcVersion.value}"
+        )
+      )
+    }
+    // Inside the getOrUpdate thunk so it logs once per PC creation, not on every request.
+    compilers.getOrUpdate(info.buildTarget.id)(
+      logOverride *> createPC(pcVersion, info.classpath, info.compilerOptions)
+    )
+  }
 }
 
 object PresentationCompilerProvider {
@@ -82,7 +102,7 @@ object PresentationCompilerProvider {
           ExpiringCache.Config(expireAfterRead = 5.minutes),
           None,
         )
-    } yield CachingPresentationCompilerProvider(serviceLoader, cache)
+    } yield CachingPresentationCompilerProvider(serviceLoader, cache, PcVersionOverride.fromEnv)
 }
 
 opaque type ScalaVersion = String

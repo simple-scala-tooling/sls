@@ -94,7 +94,7 @@ object sls extends CommonScalaModule {
     mvn"ch.qos.logback:logback-classic:1.4.14",
     mvn"com.lihaoyi::os-lib:0.11.4",
     mvn"org.polyvariant.smithy4s-bsp::bsp4s:0.6.0",
-    mvn"org.scalameta:mtags-interfaces:1.6.3",
+    mvn"org.scalameta:mtags-interfaces:1.6.7",
     mvn"com.evolution::scache:5.1.2",
     mvn"org.typelevel::cats-parse:1.1.0",
     mvn"io.get-coursier:interface:1.0.28",
