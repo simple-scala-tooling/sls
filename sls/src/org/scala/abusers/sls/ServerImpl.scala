@@ -326,6 +326,11 @@ class ServerImpl(
   implicit val rangeTransformer: Transformer[lsp4j.Range, lsp.Range] =
     Transformer.define[lsp4j.Range, lsp.Range].enableBeanGetters.buildTransformer
 
+  // Newer lsp4j models Diagnostic.message as Either[String, MarkupContent]; lsp.Diagnostic.message is a plain String.
+  implicit val diagnosticMessageTransformer
+      : Transformer[lsp4j.jsonrpc.messages.Either[String, lsp4j.MarkupContent], String] =
+    e => if e.isLeft then e.getLeft else e.getRight.getValue
+
   val handleDidChange: SynchronizedState ?=> lsp.DidChangeTextDocumentParams => IO[Unit] = {
     val debounce = Debouncer(250.millis)
 
