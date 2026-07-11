@@ -79,6 +79,7 @@ object SimpleScalaServer extends ProfilingIOApp {
           lspClient,
           BuildServer.suspend(bspClientDeferred.get),
           SmithySuspend.sus(cspClientDeferred.get),
+          ScalaBuildTargetInformation.defaultClassesRoot,
         )
         .toResource
       cancelTokens      <- IOCancelTokens.instance

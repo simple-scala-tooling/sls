@@ -74,9 +74,12 @@ object DidSaveCompileConcurrencySpec extends SimpleIOSuite {
           val uri = h.workspace.uri("Foo.scala")
           for {
             _ <- h.client.openFile(uri, src.text)
-            // Two edits saved back-to-back: the second save lands while the first compile is still in its window.
-            _    <- h.client.insertAt(uri, src.at(m1), "  def a: Int = 1\n")
-            _    <- h.client.saveFile(uri)
+            _ <- h.client.insertAt(uri, src.at(m1), "  def a: Int = 1\n")
+            _ <- h.client.saveFile(uri)
+            // Wait until the first compile is actually in its window before saving again — otherwise the second
+            // save's offer can evict the first task from the mailbox before the worker takes it (legitimate
+            // conflation: newest wins), and only one compile ever reaches the probe.
+            _    <- awaitUntil(started.get.map(n => Option.when(n >= 1)(n)), label = "first compile to start")
             _    <- h.client.insertAt(uri, src.at(m1), "  def b: Int = 2\n")
             _    <- h.client.saveFile(uri)
             _    <- awaitUntil(started.get.map(n => Option.when(n >= 2)(n)), label = "both saves to reach the CSP")

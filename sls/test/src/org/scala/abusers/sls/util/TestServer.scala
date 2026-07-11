@@ -18,7 +18,7 @@ import org.typelevel.otel4s.trace.Tracer
   *
   *   - BSP → [[BspStubs.forTarget]] (answers inverse-sources for one synthetic Scala target; everything else raises)
   *   - CSP → [[FakeCspServer.dotcBacked]] (real in-process dotc producing real TASTy jars, no zinc)
-  *   - queue → [[TestComputationQueue]] (passthrough; the `./.sls/` classpath swap is skipped)
+  *   - queue → the real [[ComputationQueue]]; the classpath swap runs against `<workspace>/.sls/classes/`
   *   - index lifecycle is set straight to `Ready`: `bootstrap` would index the JDK and dependency jars, which is out of
   *     scope until the harness grows a knob for it
   *
@@ -73,7 +73,7 @@ object TestServer {
       _                <- (bspDeferred.complete(bspStub) *> cspDeferred.complete(fakeCsp)).toResource
       sourcesToTargets <- AtomicCell[IO].of(Map.empty[SourceUri, ScalaBuildTargetInformation]).toResource
       targetsRef       <- Ref.of[IO, Set[ScalaBuildTargetInformation]](Set(targetInfo)).toResource
-      bspStateManager = new BspStateManager(client, bspStub, fakeCsp, sourcesToTargets, targetsRef)
+      bspStateManager = new BspStateManager(client, bspStub, fakeCsp, sourcesToTargets, targetsRef, slsClassesRoot(ws))
 
       indexManager = index.IndexManager(
         symbolIndex,
@@ -85,6 +85,8 @@ object TestServer {
       )
       _ <- indexLifecycle.transition(index.IndexPhase.Ready).toResource
 
+      computationQueue <- ComputationQueue.instance.toResource
+
       server = ServerImpl(
         pcProvider,
         cancelTokens,
@@ -93,7 +95,7 @@ object TestServer {
         bspDeferred,
         cspDeferred,
         client,
-        TestComputationQueue(),
+        computationQueue,
         textDocumentSync,
         bspStateManager,
         indexManager,
@@ -103,6 +105,10 @@ object TestServer {
       )
       _ <- client.completeServer(server).toResource
     } yield Handle(client, server, ws, symbolIndex, indexManager, indexLifecycle)
+
+  /** The workspace-rooted equivalent of production's `<cwd>/.sls/classes/`. */
+  private def slsClassesRoot(ws: TestWorkspace): java.nio.file.Path =
+    (ws.sourceRoot / os.up / ".sls" / "classes").toNIO
 
   private def syntheticTarget(ws: TestWorkspace): ScalaBuildTargetInformation = {
     val targetId = bsp.BuildTargetIdentifier(bsp.URI("sls-test://target"))
@@ -138,6 +144,7 @@ object TestServer {
         ),
         roots = None,
       ),
+      classesRootDir = slsClassesRoot(ws),
     )
   }
 }

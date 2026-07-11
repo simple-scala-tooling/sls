@@ -14,31 +14,27 @@ import org.scala.abusers.csp.CspServer
 import org.scala.abusers.pc.ScalaVersion
 import org.scala.abusers.sls.LoggingUtils.*
 
+import java.nio.file.Path
 import java.nio.file.Paths
 
 case class ScalaBuildTargetInformation(
     scalacOptions: ScalacOptionsItem,
     buildTarget: BuildTargetScalaBuildTarget,
     sources: bsp.SourcesItem,
+    classesRootDir: Path,
 ) {
   // Refactor this to some other way
   val displayName                = buildTarget.displayName.getOrElse("unknown-target") // log that there is no name ?
-  val classJarPath: AbsolutePath = AbsolutePath(
-    Paths
-      .get("./.sls/classes/")
-      .resolve(s"$displayName.jar")
-      .toAbsolutePath()
-  )
+  val classJarPath: AbsolutePath = AbsolutePath(classesRootDir.resolve(s"$displayName.jar"))
 
-  val classesDir: AbsolutePath = AbsolutePath(
-    Paths
-      .get("./.sls/classes/")
-      .resolve(s"$displayName/")
-      .toAbsolutePath()
-  )
+  val classesDir: AbsolutePath = AbsolutePath(classesRootDir.resolve(s"$displayName/"))
 }
 
 object ScalaBuildTargetInformation {
+
+  /** `<cwd>/.sls/classes/` — clients launch the server at the workspace root. Resolved once at startup. */
+  def defaultClassesRoot: Path = Paths.get("./.sls/classes/").toAbsolutePath()
+
   extension (buildTargetInformation: ScalaBuildTargetInformation) {
     def scalaVersion: ScalaVersion =
       ScalaVersion(buildTargetInformation.buildTarget.data.scalaVersion)
@@ -56,12 +52,13 @@ object BspStateManager {
       lspClient: SlsLanguageClient[IO],
       bspServer: BuildServer,
       cspServer: CspServer[IO],
+      classesRootDir: Path,
   ): IO[BspStateManager] =
     // We should track this in progress bar. Think of this as `Import Build`
     for {
       sourcesToTargets <- AtomicCell[IO].of(Map[SourceUri, ScalaBuildTargetInformation]())
       buildTargets     <- Ref.of[IO, Set[ScalaBuildTargetInformation]](Set.empty)
-    } yield BspStateManager(lspClient, bspServer, cspServer, sourcesToTargets, buildTargets)
+    } yield BspStateManager(lspClient, bspServer, cspServer, sourcesToTargets, buildTargets, classesRootDir)
 }
 
 /** Class responsible for tracking and handling map between file and target we want to compile it against
@@ -76,6 +73,7 @@ class BspStateManager(
     cspServer: CspServer[IO],
     sourcesToTargets: AtomicCell[IO, Map[SourceUri, ScalaBuildTargetInformation]],
     targets: Ref[IO, Set[ScalaBuildTargetInformation]],
+    classesRootDir: Path,
 ) {
   import ScalaBuildTargetInformation.*
 
@@ -151,6 +149,7 @@ class BspStateManager(
               scalacOptions = scalacOptionsItem,
               buildTarget = scalaTarget,
               sources = sources,
+              classesRootDir = classesRootDir,
             )
           )
         case _ => None

@@ -33,8 +33,15 @@ object TestClientSpec extends SimpleIOSuite {
           label = "baz to appear in the index after save",
         )
         barSymbols <- h.symbolIndex.getSymbolsByName("bar")
+        // The classpath swap queued by the save runs at the start of the next synchronized computation:
+        // drain it with a no-op didChange, then the compiled classes must be unzipped under <ws>/.sls/classes/.
+        _       <- h.client.insertAt(uri, src.at(m1), "")
+        swapped <- IO.blocking(
+          os.exists(h.workspace.sourceRoot / os.up / ".sls" / "classes" / "sls-test-target" / "example" / "Foo.class")
+        )
       } yield expect(bazSymbols.exists(_.location.exists(_.uri == uri))) &&
-        expect(barSymbols.nonEmpty)
+        expect(barSymbols.nonEmpty) &&
+        expect(swapped, "classpath swap did not unzip compiled classes into <ws>/.sls/classes/")
     }
   }
 
