@@ -74,7 +74,7 @@ object FakeCspServer {
   /** A CSP double backed by an in-process dotc run: compiles `sourcePath` straight into a fresh jar under `workDir`
     * and reports it as [[csp.OutputFormat.TASTY]] — real compiler output without the zinc machinery. `changedFiles`
     * is left empty ("unknown changes"), so `IndexManager.onCompilationComplete` indexes the whole jar. Compile errors
-    * follow the CSP contract: `success = false` plus per-file `publish` calls, never a raised error. Like zinc-cli, it
+    * follow the CSP contract: `status = FAILED` plus per-file `publish` calls, never a raised error. Like zinc-cli, it
     * tracks the files it reported for (per scope) and re-publishes them empty once they compile clean.
     *
     * Nonexistent classpath entries (e.g. the synthetic target's `./.sls/` paths) are filtered out; the test runtime
@@ -114,11 +114,14 @@ object FakeCspServer {
         }
         val previous = lastReported.getAndUpdate(_.updated(scopeId, byFile.keySet))
         val cleared  = previous.getOrElse(scopeId, Set.empty) -- byFile.keySet
-        val output   = csp.CompileOutput(
+        // Plain dotc without -Ybest-effort: errors mean no usable output.
+        val status =
+          if reporter.hasErrors then csp.CompilationStatus.FAILED else csp.CompilationStatus.SUCCEEDED
+        val output = csp.CompileOutput(
           outJar.toString,
           changedFiles = Map.empty,
           outputFormat = csp.OutputFormat.TASTY,
-          success = !reporter.hasErrors,
+          status = status,
         )
         (output, byFile, cleared)
       }.flatMap { case (output, byFile, cleared) =>

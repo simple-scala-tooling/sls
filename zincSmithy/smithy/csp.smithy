@@ -139,10 +139,19 @@ structure CompileOutput {
   changedFiles: ChangedFilesMap
   @required
   outputFormat: OutputFormat
-  /// False when compilation failed. `outputJar` and `changedFiles` are then meaningless and
-  /// must not be acted on; diagnostics arrive via `publishDiagnostics` notifications.
   @required
-  success: Boolean
+  status: CompilationStatus
+}
+
+/// Diagnostics arrive via `publishDiagnostics` notifications in every case.
+enum CompilationStatus {
+  /// Clean compile: consumers act on `outputJar` and `changedFiles` fully.
+  SUCCEEDED
+  /// Errors occurred but best-effort output was produced: `outputJar` is usable for
+  /// stale-tolerant consumers (presentation compiler); incremental state must not be trusted.
+  BEST_EFFORT
+  /// Nothing usable was produced; `outputJar` and `changedFiles` must not be acted on.
+  FAILED
 }
 
 map ChangedFilesMap {

@@ -302,15 +302,22 @@ class ServerImpl(
         bspStateManager
           .compileWithCSP(uri)
           .flatMap { res =>
-            // On failure keep the last good classpath and index; diagnostics arrive via CSP publishDiagnostics.
-            if res.success then
-              updateOutputClasspath(info, AbsolutePath(res.outputJar)) *>
-                indexManager
-                  .onCompilationComplete(info, res)
-                  .handleErrorWith(e =>
-                    lspClient.logMessage(s"Failed to update index after compilation: ${e.getMessage()}")
-                  )
-            else lspClient.logDebug(s"Compilation failed for ${info.displayName}; keeping last good state")
+            // Diagnostics arrive via CSP publishDiagnostics in every case.
+            res.status match {
+              case csp.CompilationStatus.SUCCEEDED =>
+                updateOutputClasspath(info, AbsolutePath(res.outputJar)) *>
+                  indexManager
+                    .onCompilationComplete(info, res)
+                    .handleErrorWith(e =>
+                      lspClient.logMessage(s"Failed to update index after compilation: ${e.getMessage()}")
+                    )
+              case csp.CompilationStatus.BEST_EFFORT =>
+                // Betasty keeps the PC useful on broken code; the index stays at the last good state.
+                updateOutputClasspath(info, AbsolutePath(res.outputJar)) *>
+                  lspClient.logDebug(s"Best-effort compile for ${info.displayName}; index keeps last good state")
+              case csp.CompilationStatus.FAILED =>
+                lspClient.logDebug(s"Compilation failed for ${info.displayName}; keeping last good state")
+            }
           }
           .timeout(60.seconds)
       }

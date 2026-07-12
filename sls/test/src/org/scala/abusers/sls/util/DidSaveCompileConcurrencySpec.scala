@@ -53,7 +53,12 @@ object DidSaveCompileConcurrencySpec extends SimpleIOSuite {
         // Nonexistent jar: updateOutputClasspath skips (no such file) and onCompilationComplete swallows the
         // indexing error — this probe is only about the compile boundary, not downstream indexing.
         .as(
-          csp.CompileOutput("/nonexistent/sls-probe.jar", changedFiles = Map.empty, csp.OutputFormat.TASTY, success = true)
+          csp.CompileOutput(
+            "/nonexistent/sls-probe.jar",
+            changedFiles = Map.empty,
+            csp.OutputFormat.TASTY,
+            status = csp.CompilationStatus.SUCCEEDED,
+          )
         )
   }
 

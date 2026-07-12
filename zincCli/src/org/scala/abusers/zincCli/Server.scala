@@ -230,12 +230,15 @@ class ZincCliServer(
       }
 
       for {
-        // `completed` alone is not enough: under -Ybest-effort the compiler can run to completion
-        // (emitting betasty) despite errors, so the reporter is the source of truth for success.
         (changedFiles, completed) <- result
-        success = completed && !reporter.hasErrors()
+        // Under -Ybest-effort the compiler runs to completion (emitting betasty) despite errors, so the
+        // reporter — not CompileFailed — distinguishes SUCCEEDED from BEST_EFFORT.
+        status =
+          if !completed then csp.CompilationStatus.FAILED
+          else if reporter.hasErrors() then csp.CompilationStatus.BEST_EFFORT
+          else csp.CompilationStatus.SUCCEEDED
         _ <- publishDiagnostics(scopeId, reporter.problems().toList)
-      } yield csp.CompileOutput(outputClassJar.path.toString, changedFiles, outputFormat, success)
+      } yield csp.CompileOutput(outputClassJar.path.toString, changedFiles, outputFormat, status)
     }))
 
   /** Publish problems grouped per file; files reported last time that are clean now get an explicit empty publish so
