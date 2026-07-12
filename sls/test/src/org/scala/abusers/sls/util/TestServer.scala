@@ -66,7 +66,9 @@ object TestServer {
 
       targetInfo = syntheticTarget(ws)
       bspStub    = BspStubs.forTarget(targetInfo.buildTarget.id)
-      fakeCsp    = cspServer.getOrElse(FakeCspServer.dotcBacked(cspWorkDir))
+      // Same receiving path as production: FakeCspServer "publishes" straight into ZincCspClient.
+      cspDiagnostics = ZincCspClient(client, diagnosticManager)
+      fakeCsp = cspServer.getOrElse(FakeCspServer.dotcBacked(cspWorkDir, cspDiagnostics.onPublishDiagnostics))
 
       bspDeferred      <- Deferred[IO, BuildServer].toResource
       cspDeferred      <- Deferred[IO, CspServer[IO]].toResource

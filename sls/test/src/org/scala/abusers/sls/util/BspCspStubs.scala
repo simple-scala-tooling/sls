@@ -1,6 +1,7 @@
 package org.scala.abusers.sls.util
 
 import cats.effect.IO
+import cats.syntax.all.*
 import dotty.tools.dotc.util.ClasspathFromClassloader
 import org.scala.abusers.csp
 import org.scala.abusers.sls.BuildServer
@@ -73,12 +74,18 @@ object FakeCspServer {
   /** A CSP double backed by an in-process dotc run: compiles `sourcePath` straight into a fresh jar under `workDir`
     * and reports it as [[csp.OutputFormat.TASTY]] — real compiler output without the zinc machinery. `changedFiles`
     * is left empty ("unknown changes"), so `IndexManager.onCompilationComplete` indexes the whole jar. Compile errors
-    * follow the CSP contract: `success = false`, never a raised error.
+    * follow the CSP contract: `success = false` plus per-file `publish` calls, never a raised error. Like zinc-cli, it
+    * tracks the files it reported for (per scope) and re-publishes them empty once they compile clean.
     *
     * Nonexistent classpath entries (e.g. the synthetic target's `./.sls/` paths) are filtered out; the test runtime
     * classpath is appended so the standard library resolves.
     */
-  def dotcBacked(workDir: os.Path): csp.CspServer[IO] = new csp.CspServer[IO] {
+  def dotcBacked(
+      workDir: os.Path,
+      publish: csp.PublishDiagnosticsParams => IO[Unit] = _ => IO.unit,
+  ): csp.CspServer[IO] = new csp.CspServer[IO] {
+    private val lastReported = new java.util.concurrent.atomic.AtomicReference(Map.empty[String, Set[String]])
+
     def compile(
         scopeId: String,
         classpath: List[String],
@@ -86,18 +93,40 @@ object FakeCspServer {
         scalacOptions: List[String],
         javacOptions: List[String],
         scalaVersion: csp.ScalaVersion,
-    ): IO[csp.CompileOutput] = IO.blocking {
-      val outJar = workDir / s"$scopeId-${System.nanoTime()}.jar"
-      val cp     = (classpath.filter(p => Files.exists(Path.of(p))) :+ ClasspathFromClassloader(getClass.getClassLoader))
-        .mkString(pathSeparator)
-      val args     = Array("-d", outJar.toString, "-classpath", cp) ++ sourcePath
-      val reporter = dotty.tools.dotc.Main.process(args)
-      csp.CompileOutput(
-        outJar.toString,
-        changedFiles = Map.empty,
-        outputFormat = csp.OutputFormat.TASTY,
-        success = !reporter.hasErrors,
-      )
-    }
+    ): IO[csp.CompileOutput] =
+      IO.blocking {
+        val outJar = workDir / s"$scopeId-${System.nanoTime()}.jar"
+        val cp = (classpath.filter(p => Files.exists(Path.of(p))) :+ ClasspathFromClassloader(getClass.getClassLoader))
+          .mkString(pathSeparator)
+        val args     = Array("-d", outJar.toString, "-classpath", cp) ++ sourcePath
+        val reporter = dotty.tools.dotc.Main.process(args)
+
+        val byFile = reporter.allErrors.filter(_.pos.exists).groupBy(_.pos.source.file.path).map { case (file, dias) =>
+          file -> dias.map { dia =>
+            csp.CompileDiagnostic(
+              message = dia.message,
+              severity = csp.DiagnosticSeverity.ERROR,
+              range = Some(
+                csp.DiagnosticRange(dia.pos.line, dia.pos.column, dia.pos.endLine, dia.pos.endColumn)
+              ),
+            )
+          }
+        }
+        val previous = lastReported.getAndUpdate(_.updated(scopeId, byFile.keySet))
+        val cleared  = previous.getOrElse(scopeId, Set.empty) -- byFile.keySet
+        val output   = csp.CompileOutput(
+          outJar.toString,
+          changedFiles = Map.empty,
+          outputFormat = csp.OutputFormat.TASTY,
+          success = !reporter.hasErrors,
+        )
+        (output, byFile, cleared)
+      }.flatMap { case (output, byFile, cleared) =>
+        byFile.toList.traverse_ { case (file, diags) =>
+          publish(csp.PublishDiagnosticsParams(file, scopeId, diags))
+        } *>
+          cleared.toList.traverse_(file => publish(csp.PublishDiagnosticsParams(file, scopeId, Nil))) *>
+          IO.pure(output)
+      }
   }
 }
