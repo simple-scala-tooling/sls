@@ -1,7 +1,6 @@
 package org.scala.abusers.cspit
 
 import cats.effect.IO
-import cats.syntax.all.*
 
 import java.security.MessageDigest
 import scala.jdk.CollectionConverters.*
@@ -29,12 +28,13 @@ object CompileOracle {
     finally zip.close()
   }
 
-  /** Clean compile of `sources` on a fresh server and fresh scope — the oracle side of the comparison. */
-  def cleanOutput(sources: (String, String)*): IO[Map[String, String]] =
-    (CspTestClient.spawn, CspWorkspace.resource).tupled.use { case (h, ws) =>
+  /** Clean compile of the *current* content of `sourceDir` on a fresh server and fresh scope — the oracle side of the
+    * comparison. Reuses the directory because TASTy embeds source paths; a copy would differ spuriously.
+    */
+  def cleanOutputOf(sourceDir: os.Path): IO[Map[String, String]] =
+    CspTestClient.spawn.use { h =>
       for {
-        _      <- sources.toList.traverse_ { case (name, content) => ws.write(name, content) }
-        result <- h.compile(s"oracle-${System.nanoTime()}", ws.root)
+        result <- h.compile(s"oracle-${System.nanoTime()}", sourceDir)
         _      <- IO.raiseWhen(result.status != org.scala.abusers.csp.CompilationStatus.SUCCEEDED)(
           new RuntimeException(s"oracle compile did not succeed: ${result.status}")
         )

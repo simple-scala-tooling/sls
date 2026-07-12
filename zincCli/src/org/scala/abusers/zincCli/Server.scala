@@ -101,8 +101,6 @@ class ZincCliServer(
       val outputClassDir = outputDir.resolve("classes")
       if !Files.exists(outputClassDir) then Files.createDirectories(outputClassDir)
 
-      val classpath0: List[PlainVirtualFile] = classpath.map(Path.of(_)).map(PlainVirtualFile.apply(_))
-
       val compilers0 =
         incrementalCompiler.compilers(javaCompiler, ScalaInstanceProvider.getScalaInstance(scalaVersion.version))
 
@@ -111,6 +109,14 @@ class ZincCliServer(
         outputDir.resolve("temp"),
         s"${scopeId}-classes",
       ) // + fingerprint
+
+      Files.createDirectories(outputClassJar.temp)
+
+      // The compile output must lead the classpath (standard zinc-caller contract): later incremental
+      // cycles resolve symbols produced by earlier cycles from here — without it, cycle 2 fails with
+      // "Not found: <symbol from cycle 1>".
+      val classpath0: List[PlainVirtualFile] =
+        (outputClassJar.temp :: classpath.map(Path.of(_))).map(PlainVirtualFile.apply(_))
 
       val analysisJar =
         OutputJar(outputDir.resolve("analysis"), outputDir.resolve("temp"), s"${scopeId}-analysis") // + fingerprint
@@ -197,35 +203,48 @@ class ZincCliServer(
           ZincCliLogger().info(() => compilationResult.toString())
           val changedFilesMap: Map[String, List[String]] =
             if compilationResult.hasModified then {
-            val previousStamps: Map[xsbti.VirtualFileRef, xsbti.compile.analysis.Stamp] = {
-              val prev = analysisStore.get()
-              if prev.isPresent then prev.get().getAnalysis().asInstanceOf[Analysis].stamps.sources
-              else Map.empty
-            }
-
-            val analysisContents = AnalysisContents.create(compilationResult.analysis(), compilationResult.setup())
-            analysisStore.set(analysisContents)
-            outputClassJar.cleanAndMoveToFinalDest
-            val analysis      = compilationResult.analysis().asInstanceOf[Analysis]
-            val currentStamps = analysis.stamps.sources
-
-            val changedSources = currentStamps.filter { case (src, stamp) =>
-              previousStamps.get(src) match {
-                case Some(prevStamp) => prevStamp != stamp
-                case None            => true // new source
+              val (previousTimestamps, previousSourceIds) = {
+                val prev = analysisStore.get()
+                if prev.isPresent then {
+                  val a = prev.get().getAnalysis().asInstanceOf[Analysis]
+                  (
+                    a.apis.internal.view.mapValues(_.compilationTimestamp()).toMap,
+                    a.relations.allSources.map(_.id).toSet,
+                  )
+                } else (Map.empty[String, Long], Set.empty[String])
               }
-            }.keySet
 
-            changedSources.map { src =>
-              val classNames = analysis.relations.classNames(src)
-              val entries    = classNames.toList.map(_.replace('.', '/') + entrySuffix)
-              src.id -> entries
-            }.toMap
-          } else Map.empty
+              val analysisContents = AnalysisContents.create(compilationResult.analysis(), compilationResult.setup())
+              analysisStore.set(analysisContents)
+              val analysis = compilationResult.analysis().asInstanceOf[Analysis]
+
+              val expectedEntries = analysis.relations.allSources.iterator
+                .flatMap(analysis.relations.classNames)
+                .map(_.replace('.', '/') + entrySuffix)
+                .toSet
+              outputClassJar.cleanAndMoveToFinalDest(expectedEntries)
+
+              // Recompiled = any class of the source carries a fresh compilation timestamp. Source-stamp
+              // diffs would miss invalidated-but-unedited dependents — the closure, not just the edit.
+              val recompiled = analysis.relations.allSources.iterator.flatMap { src =>
+                val classNames = analysis.relations.classNames(src)
+                val changed    = classNames.exists { cn =>
+                  analysis.apis.internal.get(cn).map(_.compilationTimestamp()) != previousTimestamps.get(cn)
+                }
+                Option.when(changed)(src.id -> classNames.toList.map(_.replace('.', '/') + entrySuffix))
+              }.toMap
+
+              // Deleted sources are reported with no entries so consumers drop their stale state.
+              val removed = previousSourceIds -- analysis.relations.allSources.map(_.id)
+
+              recompiled ++ removed.map(_ -> List.empty[String]).toMap
+            } else Map.empty
           (changedFilesMap, true)
         } catch {
-          // Compile errors are part of the contract (success = false + diagnostics), not a transport error.
-          case _: xsbti.CompileFailed => (Map.empty[String, List[String]], false)
+          // Compile errors are part of the contract (FAILED + diagnostics), not a transport error.
+          case e: xsbti.CompileFailed =>
+            System.err.println(s"Compilation failed: ${e.getMessage}")
+            (Map.empty[String, List[String]], false)
         }
       }
 
