@@ -302,12 +302,15 @@ class ServerImpl(
         bspStateManager
           .compileWithCSP(uri)
           .flatMap { res =>
-            updateOutputClasspath(info, AbsolutePath(res.outputJar)) *>
-              indexManager
-                .onCompilationComplete(info, res)
-                .handleErrorWith(e =>
-                  lspClient.logMessage(s"Failed to update index after compilation: ${e.getMessage()}")
-                )
+            // On failure keep the last good classpath and index; diagnostics arrive via CSP publishDiagnostics.
+            if res.success then
+              updateOutputClasspath(info, AbsolutePath(res.outputJar)) *>
+                indexManager
+                  .onCompilationComplete(info, res)
+                  .handleErrorWith(e =>
+                    lspClient.logMessage(s"Failed to update index after compilation: ${e.getMessage()}")
+                  )
+            else lspClient.logDebug(s"Compilation failed for ${info.displayName}; keeping last good state")
           }
           .timeout(60.seconds)
       }
@@ -535,7 +538,8 @@ class ServerImpl(
         .resource[IO](cancelTemplate = None)
         .flatMap(
           _.withEndpoints(
-            ServerEndpoints(ZincCspClient()).toOption.getOrElse(sys.error("Couldn't create ServerEndpoints"))
+            ServerEndpoints(ZincCspClient(lspClient, diagnosticManager)).toOption
+              .getOrElse(sys.error("Couldn't create ServerEndpoints"))
           )
         )
       zincJar    <- extractZincCliJar

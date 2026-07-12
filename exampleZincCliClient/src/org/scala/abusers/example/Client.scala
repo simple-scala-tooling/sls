@@ -24,7 +24,10 @@ object SmithyClientMain extends IOApp.Simple {
   def log(str: String): IOStream[Unit] = Stream.eval(IO.consoleForIO.errorln(s"\u001b[34m[client] $str \u001b[0m"))
 
   // Implementing the generated interface
-  object Client extends CspClient[IO] {}
+  object Client extends CspClient[IO] {
+    def onPublishDiagnostics(params: org.scala.abusers.csp.PublishDiagnosticsParams): IO[Unit] =
+      IO.consoleForIO.errorln(s"[34m[client] diagnostics for ${params.file}: ${params.diagnostics} [0m")
+  }
 
   def findFiles(sourcePath: Seq[Path]): IO[Seq[fs2.io.file.Path]] =
     IO.parSequence {

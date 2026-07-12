@@ -11,7 +11,7 @@ use jsonrpclib#jsonRpcPayload
 @jsonRpc
 service CspClient {
   operations: [
-
+    onPublishDiagnostics
   ]
 }
 
@@ -43,9 +43,52 @@ operation onPublishDiagnostics {
     input := {
         @jsonRpcPayload
         @required
-        params: String
+        params: PublishDiagnosticsParams
     }
     output: Unit
+}
+
+/// Per-file compile diagnostics. An empty `diagnostics` list clears the file: the server tracks which
+/// files it reported problems for (per scopeId) and re-publishes them empty once they compile clean.
+structure PublishDiagnosticsParams {
+  /// Absolute path of the source file the diagnostics belong to.
+  @required
+  file: String
+  @required
+  scopeId: String
+  @required
+  diagnostics: CompileDiagnostics
+}
+
+list CompileDiagnostics {
+  member: CompileDiagnostic
+}
+
+structure CompileDiagnostic {
+  @required
+  message: String
+  @required
+  severity: DiagnosticSeverity
+  /// Absent when the compiler reported no position (e.g. a global error).
+  range: DiagnosticRange
+}
+
+/// 0-based lines and characters, LSP convention.
+structure DiagnosticRange {
+  @required
+  startLine: Integer
+  @required
+  startCharacter: Integer
+  @required
+  endLine: Integer
+  @required
+  endCharacter: Integer
+}
+
+enum DiagnosticSeverity {
+  ERROR
+  WARNING
+  INFO
 }
 
 @jsonRpcNotification("taskProgress")
@@ -96,6 +139,10 @@ structure CompileOutput {
   changedFiles: ChangedFilesMap
   @required
   outputFormat: OutputFormat
+  /// False when compilation failed. `outputJar` and `changedFiles` are then meaningless and
+  /// must not be acted on; diagnostics arrive via `publishDiagnostics` notifications.
+  @required
+  success: Boolean
 }
 
 map ChangedFilesMap {

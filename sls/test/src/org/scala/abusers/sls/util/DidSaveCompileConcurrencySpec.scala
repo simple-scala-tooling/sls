@@ -52,7 +52,9 @@ object DidSaveCompileConcurrencySpec extends SimpleIOSuite {
         .surround(IO.sleep(window))
         // Nonexistent jar: updateOutputClasspath skips (no such file) and onCompilationComplete swallows the
         // indexing error — this probe is only about the compile boundary, not downstream indexing.
-        .as(csp.CompileOutput("/nonexistent/sls-probe.jar", changedFiles = Map.empty, csp.OutputFormat.TASTY))
+        .as(
+          csp.CompileOutput("/nonexistent/sls-probe.jar", changedFiles = Map.empty, csp.OutputFormat.TASTY, success = true)
+        )
   }
 
   test("rapid successive saves of the same target never overlap compiles") {

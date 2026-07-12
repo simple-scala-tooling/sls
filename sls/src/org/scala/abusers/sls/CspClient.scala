@@ -5,10 +5,35 @@ import cats.syntax.all.*
 import fs2.io.process.Process
 import jsonrpclib.fs2.{lsp => jsonrpclibLsp, *}
 import jsonrpclib.smithy4sinterop.ClientStub
+import org.scala.abusers.csp
 import org.scala.abusers.csp.CspClient
 import org.scala.abusers.csp.CspServer
 
-class ZincCspClient extends CspClient[IO] {}
+import java.nio.file.Paths
+
+/** Receives zinc-cli notifications: compile diagnostics are forwarded to the editor via [[DiagnosticManager]]. An
+  * empty diagnostics list clears the file (the CSP server tracks which files it reported for).
+  */
+class ZincCspClient(lspClient: SlsLanguageClient[IO], diagnosticManager: DiagnosticManager) extends CspClient[IO] {
+
+  def onPublishDiagnostics(params: csp.PublishDiagnosticsParams): IO[Unit] = {
+    val uri   = Paths.get(params.file).toSourceUri
+    val diags = params.diagnostics.map(toLsp)
+    diagnosticManager.onCspPublishDiagnostics(lspClient, uri, diags)
+  }
+
+  private def toLsp(d: csp.CompileDiagnostic): lsp.Diagnostic = {
+    val range = d.range
+      .map(r => lsp.Range(lsp.Position(r.startLine, r.startCharacter), lsp.Position(r.endLine, r.endCharacter)))
+      .getOrElse(lsp.Range(lsp.Position(0, 0), lsp.Position(0, 0)))
+    val severity = d.severity match {
+      case csp.DiagnosticSeverity.ERROR   => lsp.DiagnosticSeverity.ERROR
+      case csp.DiagnosticSeverity.WARNING => lsp.DiagnosticSeverity.WARNING
+      case csp.DiagnosticSeverity.INFO    => lsp.DiagnosticSeverity.INFORMATION
+    }
+    lsp.Diagnostic(range = range, message = d.message, severity = severity.some, source = "sls-compile".some)
+  }
+}
 
 object ZincCspClient {
   private val cspStderrLogger = org.slf4j.LoggerFactory.getLogger("org.scala.abusers.sls.CspStderr")

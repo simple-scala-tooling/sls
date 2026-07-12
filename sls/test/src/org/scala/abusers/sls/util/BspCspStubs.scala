@@ -72,7 +72,8 @@ object FakeCspServer {
 
   /** A CSP double backed by an in-process dotc run: compiles `sourcePath` straight into a fresh jar under `workDir`
     * and reports it as [[csp.OutputFormat.TASTY]] — real compiler output without the zinc machinery. `changedFiles`
-    * is left empty ("unknown changes"), so `IndexManager.onCompilationComplete` indexes the whole jar.
+    * is left empty ("unknown changes"), so `IndexManager.onCompilationComplete` indexes the whole jar. Compile errors
+    * follow the CSP contract: `success = false`, never a raised error.
     *
     * Nonexistent classpath entries (e.g. the synthetic target's `./.sls/` paths) are filtered out; the test runtime
     * classpath is appended so the standard library resolves.
@@ -91,9 +92,12 @@ object FakeCspServer {
         .mkString(pathSeparator)
       val args     = Array("-d", outJar.toString, "-classpath", cp) ++ sourcePath
       val reporter = dotty.tools.dotc.Main.process(args)
-      if reporter.hasErrors then
-        throw new RuntimeException(s"FakeCspServer compilation failed with ${reporter.errorCount} error(s)")
-      csp.CompileOutput(outJar.toString, changedFiles = Map.empty, outputFormat = csp.OutputFormat.TASTY)
+      csp.CompileOutput(
+        outJar.toString,
+        changedFiles = Map.empty,
+        outputFormat = csp.OutputFormat.TASTY,
+        success = !reporter.hasErrors,
+      )
     }
   }
 }

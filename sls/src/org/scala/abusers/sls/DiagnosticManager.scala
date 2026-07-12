@@ -33,6 +33,15 @@ class DiagnosticManager(publishedDiagnostics: MapRef[IO, SourceUri, Option[Set[l
       _ <- client.textDocumentPublishDiagnostics(request)
     } yield ()
 
+  /** CSP compile diagnostics replace the file's previous set; an empty list clears it (zinc-cli tracks which files it
+    * reported for and re-publishes them empty once clean).
+    */
+  def onCspPublishDiagnostics(client: SlsLanguageClient[IO], uri: SourceUri, diags: List[lsp.Diagnostic]): IO[Unit] =
+    for {
+      _ <- publishedDiagnostics(uri).set(diags.toSet.some)
+      _ <- client.textDocumentPublishDiagnostics(lsp.PublishDiagnosticsParams(uri.toLspUri, diags, None))
+    } yield ()
+
   def onBuildPublishDiagnostics(client: SlsLanguageClient[IO], input: BspPublishDiagnosticsParams): IO[Unit] = {
     val uri                                 = input.textDocument.uri.toSourceUri
     val lspDiags                            = input.diagnostics.toSet.map(convertDiagnostic)

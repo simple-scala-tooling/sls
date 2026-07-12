@@ -21,8 +21,8 @@ object IndexConvergenceSpec extends SimpleIOSuite {
   given Tracer[IO] = Tracer.noop[IO]
   given Meter[IO]  = Meter.noop[IO]
 
-  /** Forwards to a CSP double, counting failed compiles: a failed compile (by design) leaves no other observable
-    * trace, so tests await the counter instead of sleeping.
+  /** Forwards to a CSP double, counting failed compiles (`success = false` per the CSP contract): a failed compile
+    * (by design) leaves no other observable trace, so tests await the counter instead of sleeping.
     */
   final class FailureCountingCsp(underlying: csp.CspServer[IO], failures: Ref[IO, Int]) extends csp.CspServer[IO] {
     def compile(
@@ -35,7 +35,7 @@ object IndexConvergenceSpec extends SimpleIOSuite {
     ): IO[csp.CompileOutput] =
       underlying
         .compile(scopeId, classpath, sourcePath, scalacOptions, javacOptions, scalaVersion)
-        .onError(_ => failures.update(_ + 1))
+        .flatTap(out => IO.whenA(!out.success)(failures.update(_ + 1)))
   }
 
   test("a failed compile preserves the last good index state (test-plan 3.2)") {

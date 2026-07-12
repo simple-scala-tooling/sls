@@ -3,6 +3,7 @@ package zincCli
 
 import cats.effect.*
 import cats.effect.std.Mutex
+import cats.syntax.all.*
 import sbt.internal.inc.*
 import sbt.internal.inc.javac.JavaCompiler
 import sbt.internal.inc.javac.JavaTools
@@ -29,7 +30,12 @@ case class ZincEntryLookup(analysis: Optional[CompileAnalysis]) extends PerClass
   override def analysis(classpathEntry: VirtualFile): ju.Optional[CompileAnalysis] = analysis
 }
 
-class ZincCliServer(compileLocks: Ref[IO, Map[String, Mutex[IO]]]) extends csp.CspServer[IO] {
+class ZincCliServer(
+    client: csp.CspClient[IO],
+    compileLocks: Ref[IO, Map[String, Mutex[IO]]],
+    // files we last published problems for, per scopeId — re-published empty once they compile clean
+    lastReported: Ref[IO, Map[String, Set[String]]],
+) extends csp.CspServer[IO] {
 
   // TODO(workaround): This per-scope lock just serializes compiles of the same target so they stop corrupting each
   // other's analysis store / output jar (`${scopeId}-analysis` / `${scopeId}-classes`, both keyed by scopeId). It is
@@ -126,6 +132,8 @@ class ZincCliServer(compileLocks: Ref[IO, Map[String, Mutex[IO]]]) extends csp.C
       val entrySuffix        = ".betasty"
       val outputFormat       = csp.OutputFormat.BETASTY
 
+      val reporter = ZincCliReporter()
+
       val result = for {
         sources <- sources0
       } yield {
@@ -152,7 +160,7 @@ class ZincCliServer(compileLocks: Ref[IO, Map[String, Mutex[IO]]]) extends csp.C
           cacheFile = analysisJar.path,
           cache = CompilerCache.fresh,
           incOptions = incOptions,
-          reporter = ZincCliReporter(),
+          reporter = reporter,
           progress = None,
           earlyAnalysisStore = None,
           extra = Array(),
@@ -184,10 +192,11 @@ class ZincCliServer(compileLocks: Ref[IO, Map[String, Mutex[IO]]]) extends csp.C
 
         System.err.println(inputs)
 
-        val compilationResult = incrementalCompiler.compile(inputs, ZincCliLogger())
-        ZincCliLogger().info(() => compilationResult.toString())
-        val changedFilesMap: Map[String, List[String]] =
-          if compilationResult.hasModified then {
+        try {
+          val compilationResult = incrementalCompiler.compile(inputs, ZincCliLogger())
+          ZincCliLogger().info(() => compilationResult.toString())
+          val changedFilesMap: Map[String, List[String]] =
+            if compilationResult.hasModified then {
             val previousStamps: Map[xsbti.VirtualFileRef, xsbti.compile.analysis.Stamp] = {
               val prev = analysisStore.get()
               if prev.isPresent then prev.get().getAnalysis().asInstanceOf[Analysis].stamps.sources
@@ -213,15 +222,68 @@ class ZincCliServer(compileLocks: Ref[IO, Map[String, Mutex[IO]]]) extends csp.C
               src.id -> entries
             }.toMap
           } else Map.empty
-        changedFilesMap
+          (changedFilesMap, true)
+        } catch {
+          // Compile errors are part of the contract (success = false + diagnostics), not a transport error.
+          case _: xsbti.CompileFailed => (Map.empty[String, List[String]], false)
+        }
       }
 
-      result.map(changedFiles => csp.CompileOutput(outputClassJar.path.toString, changedFiles, outputFormat))
+      for {
+        // `completed` alone is not enough: under -Ybest-effort the compiler can run to completion
+        // (emitting betasty) despite errors, so the reporter is the source of truth for success.
+        (changedFiles, completed) <- result
+        success = completed && !reporter.hasErrors()
+        _ <- publishDiagnostics(scopeId, reporter.problems().toList)
+      } yield csp.CompileOutput(outputClassJar.path.toString, changedFiles, outputFormat, success)
     }))
 
+  /** Publish problems grouped per file; files reported last time that are clean now get an explicit empty publish so
+    * the client can drop their stale diagnostics.
+    */
+  private def publishDiagnostics(scopeId: String, problems: List[xsbti.Problem]): IO[Unit] = {
+    def optStr(o: Optional[String]): Option[String] = if o.isPresent then Some(o.get) else None
+    val byFile: Map[String, List[csp.CompileDiagnostic]] =
+      problems
+        .flatMap(p => optStr(p.position.sourcePath).map(_ -> toDiagnostic(p)))
+        .groupMap(_._1)(_._2)
+    for {
+      previous <- lastReported.modify(m => (m.updated(scopeId, byFile.keySet), m.getOrElse(scopeId, Set.empty)))
+      _        <- byFile.toList.traverse_ { case (file, diags) =>
+        client.onPublishDiagnostics(csp.PublishDiagnosticsParams(file, scopeId, diags))
+      }
+      _ <- (previous -- byFile.keySet).toList.traverse_ { file =>
+        client.onPublishDiagnostics(csp.PublishDiagnosticsParams(file, scopeId, Nil))
+      }
+    } yield ()
+  }
+
+  private def toDiagnostic(p: xsbti.Problem): csp.CompileDiagnostic = {
+    def opt(o: Optional[Integer]): Option[Int] = if o.isPresent then Some(o.get.intValue) else None
+    val pos                                    = p.position
+    // zinc lines are 1-based, columns 0-based; LSP wants both 0-based
+    val range = opt(pos.startLine).orElse(opt(pos.line)).map { startLine =>
+      val startChar = opt(pos.startColumn).orElse(opt(pos.pointer)).getOrElse(0)
+      csp.DiagnosticRange(
+        startLine = startLine - 1,
+        startCharacter = startChar,
+        endLine = opt(pos.endLine).map(_ - 1).getOrElse(startLine - 1),
+        endCharacter = opt(pos.endColumn).getOrElse(startChar),
+      )
+    }
+    val severity = p.severity match {
+      case xsbti.Severity.Error => csp.DiagnosticSeverity.ERROR
+      case xsbti.Severity.Warn  => csp.DiagnosticSeverity.WARNING
+      case xsbti.Severity.Info  => csp.DiagnosticSeverity.INFO
+    }
+    csp.CompileDiagnostic(p.message, severity, range)
+  }
 }
 
 object ZincCliServer {
-  def create: IO[ZincCliServer] =
-    Ref.of[IO, Map[String, Mutex[IO]]](Map.empty).map(new ZincCliServer(_))
+  def create(client: csp.CspClient[IO]): IO[ZincCliServer] =
+    for {
+      locks    <- Ref.of[IO, Map[String, Mutex[IO]]](Map.empty)
+      reported <- Ref.of[IO, Map[String, Set[String]]](Map.empty)
+    } yield new ZincCliServer(client, locks, reported)
 }
