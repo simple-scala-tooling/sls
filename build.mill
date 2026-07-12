@@ -198,6 +198,37 @@ object testModule extends ScalaModule {
 
 }
 
+/** Integration tests for zincCli over the real CSP wire (Tier Z of `ai/test-plan.md`). Spawns the assembled server as
+  * a subprocess per test; the jar and a ready-made compile classpath come from `forkEnv`.
+  */
+object `csp-integration-tests` extends CommonScalaModule {
+
+  def moduleDeps: Seq[JavaModule] = Seq(zincSmithy)
+
+  def mvnDeps = Seq(
+    mvn"org.typelevel::cats-effect:3.7.0",
+    mvn"co.fs2::fs2-io:3.13.0",
+    mvn"tech.neander::jsonrpclib-fs2::$jsonrpcVersion",
+    mvn"tech.neander::jsonrpclib-smithy4s::$jsonrpcVersion",
+    mvn"com.lihaoyi::os-lib:0.11.4",
+  )
+
+  object test extends ScalaTests {
+    def mvnDeps = Seq(
+      mvn"org.typelevel::weaver-cats:0.12.0"
+    )
+    def testFramework = "weaver.framework.CatsEffect"
+
+    override def forkEnv = Task {
+      Map(
+        "SERVER_JAR"         -> zincCli.assembly().path.toString,
+        "TEST_CLASSPATH"     -> testModule.compileClasspath().map(_.path.toString).mkString(";"),
+        "TEST_SCALA_VERSION" -> testModule.scalaVersion(),
+      )
+    }
+  }
+}
+
 val fixtureVersion = "0.1.0-SNAPSHOT"
 
 def fixturePom(desc: String) = PomSettings(
