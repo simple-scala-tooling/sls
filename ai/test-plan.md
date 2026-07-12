@@ -101,7 +101,7 @@ Keep the frozen fixture JARs used by index specs — they are the TASTy-version-
 
 # Tier 0 — Harness work items
 
-## H1. Injectable `.sls` root; real `ComputationQueueImpl` in `TestServer`
+## H1. Injectable `.sls` root; real `ComputationQueueImpl` in `TestServer` — DONE (`feat/test-h1-real-queue`)
 
 **Blocks:** 3.5, 3.10; strengthens every Tier-3 test.
 **Production change (small, also a real fix):** thread a configurable root through
@@ -118,7 +118,8 @@ unzipped classes appear under the temp `.sls` root (proves pending syncs actuall
 ## H2. `CspTestClient` — assertive subprocess client for the real zincCli assembly
 
 **Blocks:** all Tier Z.
-**Shape:** new mill module (suggested name `cspIt`) with `forkEnv("SERVER_JAR" -> zincCli.assembly().path)`
+**Shape:** new mill module named `csp-integration-tests` (backticked object in `build.mill`; the CLI
+`./mill csp-integration-tests.test` is unaffected) with `forkEnv("SERVER_JAR" -> zincCli.assembly().path)`
 following the existing `exampleZincCliClient` wiring in `build.mill`. Inside:
 
 ```scala
@@ -159,7 +160,7 @@ disk itself, mirroring how `saveFile` writes then notifies).
 **Note for the agent:** this is the largest item in the plan; propose the reconciliation design in
 the PR description before implementing if anything is ambiguous.
 
-## H4. Convergence oracle helper
+## H4. Convergence oracle helper — DONE, minimal form (`Convergence.freshIndexIds`/`sessionIndexIds`; diagnostics comparison pending)
 
 **Blocks:** 3.1–3.4, 3.7 assertions (usable by all Tier-3 tests).
 
@@ -175,22 +176,28 @@ object Convergence {
 The determinism test in `TestClientSpec` already does (a) by hand — refactor it onto this helper.
 Diagnostics comparison should normalize ordering and compare as sets.
 
-## H5. CSP failure contract (smithy change + both sides)
+## H5. CSP failure contract (smithy change + both sides) — DONE (option b)
 
-**Blocks:** Z2, Z8; needed before diagnostics-based Z assertions.
-**Decision to make first (agent: propose, get sign-off):** either
-(a) make `CompileOutput.outputJar` optional and add `success: Boolean` + `diagnostics` list, or
-(b) keep request/response minimal and mount `onPublishDiagnostics` (typed, not `String`) into the
-`CspClient` service so diagnostics stream as notifications, with `CompileOutput` gaining only `success`.
-Option (b) matches LSP's push model and what `sls` ultimately needs for build diagnostics; the
-current `String` payloads on the three notification ops should become typed structures either way.
-**Scope:** `csp.smithy`, `ZincCliServer` (emit result/diagnostics from the zinc `Reporter`),
-`sls`'s CSP client handling in `BspStateManager.compileWithCSP` path, `FakeCspServer` (mirror the
-new contract), `CspTestClient` (capture notifications).
+Landed on `feat/csp-failure-contract` + `feat/csp-compilation-status`: typed `onPublishDiagnostics`
+mounted in `CspClient` (empty list clears a file; zinc-cli tracks reported files per scope), and
+`CompileOutput.status: CompilationStatus` (`SUCCEEDED | BEST_EFFORT | FAILED`). Consumer split in
+`ServerImpl.handleDidSave`: SUCCEEDED → swap + index; BEST_EFFORT → swap only (PC gets betasty,
+index keeps last good state); FAILED → keep everything.
+
+## H6. zincCli: salvage best-effort output after CompileFailed (NEW, discovered during H5)
+
+**Blocks:** the BEST_EFFORT arm of Z8; the PC-on-broken-code experience.
+Wire-verified: zinc throws `CompileFailed` on reporter errors even under `-Ybest-effort`, before
+`outputClassJar.cleanAndMoveToFinalDest` runs — the betasty produced during a failed compile is
+discarded with the temp dir, so `BEST_EFFORT` is currently unreachable. Fix in `ZincCliServer`'s
+catch block: move the best-effort output into place and report `BEST_EFFORT` when errors occurred
+but betasty exists. (Alternatively fix at the zinc/bridge level — maintainer's call.)
+**Test (in `csp-integration-tests`):** broken compile → status `BEST_EFFORT` + `.betasty` entries
+present in the returned jar.
 
 ---
 
-# Tier Z — zincCli/CSP tests (module `cspIt`, real subprocess)
+# Tier Z — zincCli/CSP tests (module `csp-integration-tests`, real subprocess)
 
 All use `CspTestClient` (H2). Oracle = clean compile of final sources (`CompileOracle`).
 These test **our wiring of zinc** (classpath, previous analysis, source sets, stores) — zinc's
@@ -250,10 +257,11 @@ store is valid after). Cross-scope: both complete correctly; do **not** assert t
 
 ### Z8. Error-response contract pinned
 Compile sources with an error.
-**Assert:** exactly what H5's contract promises — success flag false, diagnostics present, jar
-field per contract (absent or last-good, whichever H5 chose). This test is the executable spec of
-the contract; write it alongside H5.
-**Prereqs:** H2, H5.
+**Assert:** exactly what H5's contract promises — one test per `CompilationStatus` value:
+FAILED (dotc crash / no output), BEST_EFFORT (errors + betasty in jar; needs H6), SUCCEEDED.
+Diagnostics present on failure, cleared via empty publish on the next clean compile. This test is
+the executable spec of the contract.
+**Prereqs:** H2, H5 (done); the BEST_EFFORT arm needs H6.
 
 ### Z9. Property: random edit sequences converge (later)
 Generator: N rounds of {edit file, add file, delete file, flip error on/off} → compile each round.
@@ -269,7 +277,7 @@ All in `sls/test/src/org/scala/abusers/sls/`; suggested suite split:
 (3.5, 3.6, 3.10), `WatchedFilesSpec` (3.7, 3.8), `HostileInputSpec` (3.11), `RecoverySpec` (3.12, 3.13).
 Await via `awaitUntil`; converge via `Convergence.check` (H4).
 
-### 3.1. Diagnostics appear then clear
+### 3.1. Diagnostics appear then clear — DONE (`feat/test-31-diagnostics-lifecycle`)
 Open file, insert a type error at a marker, save → await diagnostics non-empty for that uri.
 Fix the error (edit back), save → await diagnostics empty.
 **Assert:** both transitions; final `Convergence.check`.
@@ -278,19 +286,19 @@ if `FakeCspServer` doesn't yet surface diagnostics, this test drives a small ext
 (mirror whatever H5 defines; coordinate).
 **Failure mode:** the single most-reported Metals bug — stale red squiggles.
 
-### 3.2. Failed compile preserves last good state
+### 3.2. Failed compile preserves last good state — DONE (`feat/test-32-33-index-convergence`)
 Open + save a clean file (symbol `foo` indexed). Edit to introduce a compile error + rename `foo`→`bar`, save.
 **Assert:** compile fails; index still contains `foo`, not `bar` (no half-applied update). Fix the
 error keeping `bar`, save → index has `bar`, not `foo`; `Convergence.check`.
 **Prereqs:** H4, and FakeCspServer must fail the IO on compile errors (it already throws).
 **Failure mode:** mixed old/new state after partial failure — the root of "restart to fix".
 
-### 3.3. Deletion propagates to the index
+### 3.3. Deletion propagates to the index — DONE (`feat/test-32-33-index-convergence`)
 Open file with two defs, save. Delete one def, save.
 **Assert:** deleted symbol absent from `symbolIndex`, other present; `Convergence.check`.
 **Failure mode:** additive-only indexes that accrete ghosts. Deletion is where staleness hides.
 
-### 3.4. Cross-file staleness (flagship)
+### 3.4. Cross-file staleness (flagship) — stub variant DONE (`feat/test-34-cross-file-staleness`); real-zincCli variant pending H2
 Workspace: `A.scala` uses `B.scala`'s API. Open both, save (clean). Edit B's signature so A breaks,
 save B only.
 **Assert:** diagnostics appear **for A** (a file the user didn't touch); fix A, save → all clear;
@@ -310,7 +318,7 @@ the fully unzipped dir, never mid-delete). Also assert the swap actually happene
 **Prereqs:** H1. **Failure mode:** category-B race that generates the exact stale-PC-classpath
 window Metals users hit after every compile.
 
-### 3.6. Save conflation: newest wins, none lost
+### 3.6. Save conflation: newest wins, none lost — DONE (`feat/test-36-save-conflation`)
 Gate `FakeCspServer.compile` on a `Deferred` so the first compile blocks. Fire 5 edit+save rounds
 (contents v1..v5) while blocked. Release.
 **Assert:** exactly the semantics of `ServerImpl.scala:299-307` — in-flight (v1) completes,
