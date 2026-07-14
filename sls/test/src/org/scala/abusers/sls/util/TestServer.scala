@@ -34,6 +34,7 @@ object TestServer {
       symbolIndex: index.SymbolIndex,
       indexManager: index.IndexManager,
       lifecycle: index.IndexLifecycle,
+      textDocumentSync: TextDocumentSyncManager,
   )
 
   def resource(ws: TestWorkspace, cspServer: Option[CspServer[IO]] = None)(using
@@ -106,7 +107,7 @@ object TestServer {
         compileScheduler,
       )
       _ <- client.completeServer(server).toResource
-    } yield Handle(client, server, ws, symbolIndex, indexManager, indexLifecycle)
+    } yield Handle(client, server, ws, symbolIndex, indexManager, indexLifecycle, textDocumentSync)
 
   /** The workspace-rooted equivalent of production's `<cwd>/.sls/classes/`. */
   private def slsClassesRoot(ws: TestWorkspace): java.nio.file.Path =
