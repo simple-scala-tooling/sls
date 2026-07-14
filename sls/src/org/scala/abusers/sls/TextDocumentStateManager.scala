@@ -9,8 +9,16 @@ case class DocumentState(content: String, uri: SourceUri) {
   private lazy val locationMap = LocationMap(content)
 
   extension (lspPos: lsp.Position) {
-    def toOffset: Int =
-      locationMap.toOffset(lspPos.line, lspPos.character).getOrElse(-1 /* no such line */ )
+    // Out-of-bounds positions are clamped to the document (LSP behavior for over-long columns); the old `-1`
+    // sentinel made `take`/`drop` silently corrupt the buffer on any position past EOF.
+    def toOffset: Int = {
+      val line = math.max(lspPos.line, 0)
+      val char = math.max(lspPos.character, 0)
+      locationMap
+        .toOffset(line, char)
+        .orElse(locationMap.toOffset(line, 0).map(lineStart => math.min(lineStart + char, content.length)))
+        .getOrElse(content.length)
+    }
   }
 
   def processEdits(edits: List[lsp.TextDocumentContentChangeEvent]): DocumentState =
@@ -26,8 +34,11 @@ case class DocumentState(content: String, uri: SourceUri) {
     val lsp.Range(startPos, endPos) = edit.range
     val startOffset                 = startPos.toOffset
     val endOffset                   = endPos.toOffset
-    val init                        = content.take(startOffset)
-    val end                         = content.drop(endOffset)
+    // Inverted ranges are a protocol violation; failing here aborts the whole didChange atomically
+    // (the AtomicCell update throws), so the document keeps its pre-change state.
+    require(startOffset <= endOffset, s"inverted range in didChange: ${edit.range}")
+    val init = content.take(startOffset)
+    val end  = content.drop(endOffset)
     DocumentState(init ++ edit.text ++ end, uri)
   }
 }
