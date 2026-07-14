@@ -51,11 +51,15 @@ object CspTestClient {
     def onPublishDiagnostics(params: csp.PublishDiagnosticsParams): IO[Unit] = ref.update(params :: _)
   }
 
-  def spawn: Resource[IO, Handle] =
+  def spawn: Resource[IO, Handle] = spawnIn(workDir = None)
+
+  /** Spawn with a stable `--work-dir` so the analysis store and output jars survive across server restarts (Z4+). */
+  def spawnIn(workDir: Option[os.Path]): Resource[IO, Handle] =
     for {
       published <- Resource.eval(Ref.of[IO, List[csp.PublishDiagnosticsParams]](Nil))
-      process   <- Resource.make(
-        IO.blocking(new ProcessBuilder("java", "-jar", serverJar.toString).start())
+      command = List("java", "-jar", serverJar.toString) ++ workDir.toList.flatMap(d => List("--work-dir", d.toString))
+      process <- Resource.make(
+        IO.blocking(new ProcessBuilder(command*).start())
       )(p => IO.blocking { p.destroyForcibly(); p.waitFor() }.void)
       channel <- FS2Channel.resource[IO](cancelTemplate = None)
       _       <- channel.withEndpoints(

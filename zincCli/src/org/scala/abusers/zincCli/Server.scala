@@ -35,6 +35,7 @@ class ZincCliServer(
     compileLocks: Ref[IO, Map[String, Mutex[IO]]],
     // files we last published problems for, per scopeId — re-published empty once they compile clean
     lastReported: Ref[IO, Map[String, Set[String]]],
+    workDir: Option[Path],
 ) extends csp.CspServer[IO] {
 
   // TODO(workaround): This per-scope lock just serializes compiles of the same target so they stop corrupting each
@@ -75,12 +76,19 @@ class ZincCliServer(
   )
   val incrementalCompiler = IncrementalCompilerImpl()
 
-  val outputDir = Files.createTempDirectory("zinc-classes-directory")
-
-  Runtime.getRuntime.addShutdownHook(new Thread(() => { // to i tak trzeba poprawic bo nie ma analizy etc
-    System.err.println(s"Deleting output directory $outputDir")
-    sbt.io.IO.delete(outputDir.toFile)
-  }))
+  /** With an explicit work dir the analysis store and output jars survive restarts (incremental cold start); the
+    * temp-dir fallback is wiped on shutdown, so every server boot pays a clean compile.
+    */
+  val outputDir = workDir match {
+    case Some(dir) => Files.createDirectories(dir)
+    case None      =>
+      val tmp = Files.createTempDirectory("zinc-classes-directory")
+      Runtime.getRuntime.addShutdownHook(new Thread(() => {
+        System.err.println(s"Deleting output directory $tmp")
+        sbt.io.IO.delete(tmp.toFile)
+      }))
+      tmp
+  }
 
   override def compile(
       scopeId: String,
@@ -303,9 +311,9 @@ class ZincCliServer(
 }
 
 object ZincCliServer {
-  def create(client: csp.CspClient[IO]): IO[ZincCliServer] =
+  def create(client: csp.CspClient[IO], workDir: Option[Path]): IO[ZincCliServer] =
     for {
       locks    <- Ref.of[IO, Map[String, Mutex[IO]]](Map.empty)
       reported <- Ref.of[IO, Map[String, Set[String]]](Map.empty)
-    } yield new ZincCliServer(client, locks, reported)
+    } yield new ZincCliServer(client, locks, reported, workDir)
 }

@@ -12,10 +12,12 @@ object ZincCli extends IOApp {
     IO.consoleForIO.errorln(s"Fatal error in Zinc CLI: ${err.getMessage}, ${err.getStackTrace().mkString("\n")}")
 
   override def run(args: List[String]): IO[ExitCode] = {
+    // `--work-dir <path>`: stable analysis-store/output location surviving restarts; default is a temp dir wiped on exit.
+    val workDir = args.sliding(2).collectFirst { case List("--work-dir", path) => java.nio.file.Path.of(path) }
     val app = for {
       fs2Channel <- FS2Channel.resource[IO](cancelTemplate = None)
       client               <- jsonrpclib.smithy4sinterop.ClientStub(org.scala.abusers.csp.CspClient, fs2Channel).liftTo[IO].toResource
-      server               <- ZincCliServer.create(client).toResource
+      server               <- ZincCliServer.create(client, workDir).toResource
       serverEndpoints      <- ServerEndpoints(server).liftTo[IO].toResource
       channelWithEndpoints <- fs2Channel.withEndpoints(serverEndpoints)
       _                    <- fs2.Stream
